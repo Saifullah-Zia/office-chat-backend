@@ -1,0 +1,45 @@
+package com.officechat.office_chat_backend.call;
+
+import com.officechat.office_chat_backend.call.dto.CallResponse;
+import com.officechat.office_chat_backend.call.dto.InitiateCallRequest;
+import com.officechat.office_chat_backend.user.User;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/calls")
+@RequiredArgsConstructor
+public class CallController {
+
+    private final CallService callService;
+
+    @PostMapping
+    public CallResponse initiate(@AuthenticationPrincipal User currentUser, @Valid @RequestBody InitiateCallRequest request) {
+        return CallResponse.from(callService.initiate(request.conversationId(), currentUser, request.type()));
+    }
+
+    @PostMapping("/{id}/accept")
+    public CallResponse accept(@AuthenticationPrincipal User currentUser, @PathVariable Long id) {
+        return CallResponse.from(callService.accept(id, currentUser));
+    }
+
+    @PostMapping("/{id}/reject")
+    public CallResponse reject(@AuthenticationPrincipal User currentUser, @PathVariable Long id) {
+        return CallResponse.from(callService.reject(id, currentUser));
+    }
+
+    @PostMapping("/{id}/end")
+    public CallResponse end(@AuthenticationPrincipal User currentUser, @PathVariable Long id) {
+        return CallResponse.from(callService.end(id, currentUser));
+    }
+
+    @GetMapping("/conversation/{conversationId}")
+    public List<CallResponse> history(@AuthenticationPrincipal User currentUser, @PathVariable Long conversationId) {
+        return callService.getHistory(conversationId, currentUser.getId())
+                .stream().map(CallResponse::from).toList();
+    }
+}
