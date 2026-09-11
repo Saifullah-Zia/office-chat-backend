@@ -41,7 +41,7 @@ public class FileController {
                 ? attachment.getMimeType()
                 : MediaType.APPLICATION_OCTET_STREAM_VALUE;
 
-        String disposition = contentType.startsWith("image/") ? "inline" : "attachment";
+        String disposition = (contentType.startsWith("image/") || contentType.startsWith("audio/")) ? "inline" : "attachment";
 
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(contentType))
