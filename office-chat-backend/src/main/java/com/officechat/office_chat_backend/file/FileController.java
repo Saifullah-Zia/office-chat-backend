@@ -46,6 +46,8 @@ public class FileController {
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(contentType))
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition + "; filename=\"" + attachment.getFileName() + "\"")
+                .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000, immutable")
+                .header(HttpHeaders.ACCEPT_RANGES, "bytes")
                 .body(resource);
     }
 }

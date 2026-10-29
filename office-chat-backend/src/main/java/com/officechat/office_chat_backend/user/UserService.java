@@ -89,4 +89,18 @@ public class UserService implements UserDetailsService {
         user.setActive(active);
         return userRepository.save(user);
     }
+
+    public User updateWorkStatus(Long userId, String workStatus) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
+        user.setWorkStatus(workStatus);
+        return userRepository.save(user);
+    }
+
+    public User updateRole(Long userId, Role role) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
+        user.setRole(role);
+        return userRepository.save(user);
+    }
 }

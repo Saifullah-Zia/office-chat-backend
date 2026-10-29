@@ -126,6 +126,13 @@
 			<artifactId>spring-boot-starter-websocket-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+
+		<!-- Agora Official Token Generation -->
+		<dependency>
+			<groupId>io.agora</groupId>
+			<artifactId>authentication</artifactId>
+			<version>2.1.2</version>
+		</dependency>
 	</dependencies>
 
 	<build>

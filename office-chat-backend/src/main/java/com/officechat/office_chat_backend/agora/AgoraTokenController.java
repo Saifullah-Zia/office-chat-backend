@@ -1,5 +1,7 @@
 package com.officechat.office_chat_backend.agora;
 
+import io.agora.media.RtcTokenBuilder2;
+import io.agora.media.RtcTokenBuilder2.Role;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -21,16 +23,19 @@ public class AgoraTokenController {
             @RequestParam String channelName,
             @RequestParam(defaultValue = "0") int uid
     ) {
-        int expirationInSeconds = 3600 * 24; // 24 hours validity
+        int tokenExpirationInSeconds = 3600 * 24; // 24 hours validity
+        int privilegeExpirationInSeconds = 3600 * 24;
 
-        String token = RtcTokenBuilder2.buildTokenWithUid(
+        RtcTokenBuilder2 tokenBuilder = new RtcTokenBuilder2();
+
+        String token = tokenBuilder.buildTokenWithUid(
                 appId,
                 appCertificate,
                 channelName,
                 uid,
-                RtcTokenBuilder2.Role.ROLE_PUBLISHER,
-                expirationInSeconds,
-                expirationInSeconds
+                Role.ROLE_PUBLISHER,
+                tokenExpirationInSeconds,
+                privilegeExpirationInSeconds
         );
 
         return ResponseEntity.ok(Map.of(

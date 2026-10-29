@@ -15,6 +15,8 @@ public class UserResponse {
     private String department;
     private Role role;
     private String profilePicUrl;
+    private String workStatus;
+    private boolean active;
 
     public static UserResponse from(User user) {
         return new UserResponse(
@@ -23,7 +25,9 @@ public class UserResponse {
                 user.getEmail(),
                 user.getDepartment(),
                 user.getRole(),
-                user.getProfilePicUrl()
+                user.getProfilePicUrl(),
+                user.getWorkStatus(),
+                user.isActive()
         );
     }
 }

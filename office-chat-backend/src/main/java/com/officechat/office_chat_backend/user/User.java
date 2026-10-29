@@ -45,6 +45,9 @@ public class User implements UserDetails {
     @Column(name = "profile_pic_url")
     private String profilePicUrl;
 
+    @Column(name = "work_status")
+    private String workStatus;
+
     @Builder.Default
     private boolean active = true;
 

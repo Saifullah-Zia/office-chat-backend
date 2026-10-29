@@ -61,6 +61,14 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 User user = userService.loadUserByUsername(email);
 
                 if (jwtService.isTokenValid(token, user)) {
+                    // Block deactivated users even if their JWT is still valid
+                    if (!user.isActive()) {
+                        System.out.println("JWT FILTER [DEACTIVATED]: URI=" + request.getRequestURI() + " user=" + email);
+                        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                        response.setContentType("application/json");
+                        response.getWriter().write("{\"error\":\"Your account has been deactivated. Please contact your administrator.\"}");
+                        return;
+                    }
                     UsernamePasswordAuthenticationToken authToken =
                             new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
                     authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));

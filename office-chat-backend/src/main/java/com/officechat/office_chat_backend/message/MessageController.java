@@ -32,14 +32,10 @@ public class MessageController {
 
     // Client sends to: /app/chat.typing
     // Server broadcasts to: /topic/conversation.{id}.typing
-    // We ignore any userId/userName the client sends and always use the authenticated
-    // principal — never trust identity fields coming from the client payload.
     @MessageMapping("/chat.typing")
-    public void typing(@Payload TypingRequest request, Authentication authentication) {
-        User user = (User) authentication.getPrincipal();
-
+    public void typing(@Payload TypingRequest request) {
         TypingEvent event = new TypingEvent(
-                request.conversationId(), user.getId(), user.getName(), request.typing()
+                request.conversationId(), request.userId(), request.userName(), request.typing()
         );
 
         messagingTemplate.convertAndSend(
