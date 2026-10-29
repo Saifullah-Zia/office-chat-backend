@@ -11,6 +11,10 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 
     Page<Message> findByConversationIdOrderByCreatedAtDesc(Long conversationId, Pageable pageable);
 
+    /** Cursor page: messages older than {@code beforeId} and newer than {@code after} (the member's clear point). */
+    Page<Message> findByConversationIdAndIdLessThanAndCreatedAtAfterOrderByIdDesc(
+            Long conversationId, Long beforeId, Instant after, Pageable pageable);
+
     Optional<Message> findTopByConversationIdOrderByCreatedAtDesc(Long conversationId);
 
     long countByConversationIdAndCreatedAtAfter(Long conversationId, Instant after);

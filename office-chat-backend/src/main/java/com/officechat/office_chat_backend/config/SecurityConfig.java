@@ -59,7 +59,8 @@ public class SecurityConfig {
                                 "/v3/api-docs/**",
                                 "/v3/api-docs.yaml").permitAll()
                         .requestMatchers("/api/health").permitAll()
-                        .requestMatchers("/api/files/**").permitAll()
+                        // Downloads verify a signed URL (or a logged-in member) themselves; uploads need auth.
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/files/*/download").permitAll()
                         .requestMatchers("/ws/**").permitAll()
                         .anyRequest().authenticated()
                 )

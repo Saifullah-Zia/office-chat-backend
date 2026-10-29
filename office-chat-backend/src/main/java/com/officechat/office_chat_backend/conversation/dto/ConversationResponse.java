@@ -15,5 +15,10 @@ public record ConversationResponse(
         long unreadCount,
         boolean onlyAdminsCanPost,
         boolean isAnnouncement,
-        Instant mutedUntil
+        Instant mutedUntil,
+        List<Long> adminIds,      // per-group admins (members with is_admin)
+        boolean blockedByMe,      // DIRECT only: I blocked the other member
+        boolean blockedMe,        // DIRECT only: the other member blocked me
+        boolean pinned,           // pinned in my chat list
+        boolean archived          // archived in my chat list
 ) {}

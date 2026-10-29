@@ -16,7 +16,7 @@ public record AttachmentResponse(
                 attachment.getFileName(),
                 attachment.getFileSize(),
                 attachment.getMimeType(),
-                "/api/files/" + attachment.getId() + "/download"
+                com.officechat.office_chat_backend.file.DownloadUrlSigner.signedPath(attachment.getId())
         );
     }
 }

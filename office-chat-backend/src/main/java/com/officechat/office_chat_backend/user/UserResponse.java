@@ -4,6 +4,8 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -17,6 +19,7 @@ public class UserResponse {
     private String profilePicUrl;
     private String workStatus;
     private boolean active;
+    private Instant lastSeenAt;
 
     public static UserResponse from(User user) {
         return new UserResponse(
@@ -27,7 +30,8 @@ public class UserResponse {
                 user.getRole(),
                 user.getProfilePicUrl(),
                 user.getWorkStatus(),
-                user.isActive()
+                user.isActive(),
+                user.getLastSeenAt()
         );
     }
 }

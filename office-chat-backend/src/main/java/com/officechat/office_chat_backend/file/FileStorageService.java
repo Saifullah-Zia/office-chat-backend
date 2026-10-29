@@ -22,9 +22,29 @@ public class FileStorageService {
     @Value("${app.upload-dir}")
     private String uploadDir;
 
-    // Block the extensions that pose a real risk in a chat/file-sharing tool
-    private static final List<String> BLOCKED_EXTENSIONS =
-            List.of("exe", "bat", "cmd", "sh", "msi", "com", "scr", "jar");
+    // Block executables and scripts that pose a real risk in a chat/file-sharing tool
+    private static final List<String> BLOCKED_EXTENSIONS = List.of(
+            "exe", "bat", "cmd", "sh", "msi", "com", "scr", "jar", "ps1", "psm1", "vbs", "vbe", "js", "jse",
+            "wsf", "wsh", "hta", "cpl", "msc", "dll", "lnk", "reg", "pif", "application", "gadget", "msp",
+            "apk", "app", "dmg", "pkg", "deb", "rpm", "iso", "html", "htm", "xhtml", "mht", "svgz"
+    );
+
+    private static final int MAX_NAME_LENGTH = 180;
+
+    /** Last path segment only, no control characters, bounded length. */
+    private static String sanitizeFileName(String raw) {
+        String name = raw == null ? "" : raw;
+        int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        if (slash >= 0) name = name.substring(slash + 1);
+        name = name.replaceAll("[\\p{Cntrl}\"<>|:*?]", "_").trim();
+        if (name.isEmpty() || name.equals(".") || name.equals("..")) name = "file";
+        if (name.length() > MAX_NAME_LENGTH) {
+            int dot = name.lastIndexOf('.');
+            String ext = dot > 0 && name.length() - dot <= 10 ? name.substring(dot) : "";
+            name = name.substring(0, MAX_NAME_LENGTH - ext.length()) + ext;
+        }
+        return name;
+    }
 
     private Path resolveUploadPath() {
         Path path = Paths.get(uploadDir).toAbsolutePath().normalize();
@@ -41,15 +61,16 @@ public class FileStorageService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Cannot upload an empty file");
         }
 
-        String originalName = Path.of(file.getOriginalFilename() != null ? file.getOriginalFilename() : "file")
-                .getFileName().toString(); // strips any directory traversal attempt like ../../
+        String originalName = sanitizeFileName(file.getOriginalFilename()); // strips ../ traversal etc.
 
-        String extension = getExtension(originalName);
-        if (BLOCKED_EXTENSIONS.contains(extension.toLowerCase())) {
+        String extension = getExtension(originalName).toLowerCase();
+        if (BLOCKED_EXTENSIONS.contains(extension)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "File type not allowed: ." + extension);
         }
+        // Stored name uses only a safe, short extension; the original name is kept in the DB.
+        String safeExt = extension.matches("[a-z0-9]{1,10}") ? extension : "";
 
-        String storedFileName = UUID.randomUUID() + (extension.isEmpty() ? "" : "." + extension);
+        String storedFileName = UUID.randomUUID() + (safeExt.isEmpty() ? "" : "." + safeExt);
         Path target = resolveUploadPath().resolve(storedFileName);
 
         try {

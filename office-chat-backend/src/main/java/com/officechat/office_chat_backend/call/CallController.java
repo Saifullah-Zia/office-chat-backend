@@ -37,6 +37,15 @@ public class CallController {
         return CallResponse.from(callService.end(id, currentUser));
     }
 
+    @GetMapping("/history")
+    public List<CallResponse> myHistory(
+            @AuthenticationPrincipal User currentUser,
+            @RequestParam(defaultValue = "50") int limit
+    ) {
+        return callService.getMyHistory(currentUser.getId(), Math.min(limit, 200))
+                .stream().map(CallResponse::from).toList();
+    }
+
     @GetMapping("/conversation/{conversationId}")
     public List<CallResponse> history(@AuthenticationPrincipal User currentUser, @PathVariable Long conversationId) {
         return callService.getHistory(conversationId, currentUser.getId())

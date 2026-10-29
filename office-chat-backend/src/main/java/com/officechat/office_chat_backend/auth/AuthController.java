@@ -20,6 +20,7 @@ public class AuthController {
     private final UserService userService;
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
+    private final com.officechat.office_chat_backend.common.RateLimiter rateLimiter;
 
     @PostMapping("/register")
     public AuthResponse register(@Valid @RequestBody RegisterRequest request) {
@@ -29,11 +30,23 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public AuthResponse login(@Valid @RequestBody LoginRequest request) {
+    public AuthResponse login(@Valid @RequestBody LoginRequest request, jakarta.servlet.http.HttpServletRequest http) {
         String cleanEmail = request.email() != null ? request.email().trim().toLowerCase() : "";
+
+        // Brute-force protection: per account and per client address.
+        String accountKey = "login:" + cleanEmail;
+        String ipKey = "login-ip:" + http.getRemoteAddr();
+        if (!rateLimiter.tryAcquire(accountKey, 10, java.time.Duration.ofMinutes(15))
+                || !rateLimiter.tryAcquire(ipKey, 50, java.time.Duration.ofMinutes(15))) {
+            throw new com.officechat.office_chat_backend.common.ApiException(
+                    org.springframework.http.HttpStatus.TOO_MANY_REQUESTS,
+                    "Too many login attempts. Please wait 15 minutes and try again.");
+        }
+
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(cleanEmail, request.password())
         );
+        rateLimiter.reset(accountKey); // successful login clears the account counter
 
         User user = userService.loadUserByUsername(cleanEmail);
         String token = jwtService.generateToken(user);

@@ -69,6 +69,15 @@ public class CallService {
         return callRepository.findByConversationIdOrderByStartedAtDesc(conversationId);
     }
 
+    /** Most recent calls across every conversation the user belongs to. */
+    @Transactional(readOnly = true)
+    public List<Call> getMyHistory(Long userId, int limit) {
+        List<Long> convIds = conversationService.getConversationIdsForUser(userId);
+        if (convIds.isEmpty()) return List.of();
+        return callRepository.findByConversationIdInOrderByStartedAtDesc(
+                convIds, org.springframework.data.domain.PageRequest.of(0, limit));
+    }
+
     private Call findCallAndAssertMember(Long callId, Long userId) {
         Call call = callRepository.findById(callId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Call not found"));

@@ -51,6 +51,9 @@ public class User implements UserDetails {
     @Builder.Default
     private boolean active = true;
 
+    @Column(name = "last_seen_at")
+    private Instant lastSeenAt;
+
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 

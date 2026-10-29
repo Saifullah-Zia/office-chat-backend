@@ -51,6 +51,13 @@ public class Message {
     @Builder.Default
     private boolean isPinned = false;
 
+    @Column(name = "forwarded")
+    private Boolean forwarded; // null/false = original message
+
+    public boolean isForwardedMessage() {
+        return Boolean.TRUE.equals(forwarded);
+    }
+
     @PrePersist
     protected void onCreate() {
         this.createdAt = Instant.now();

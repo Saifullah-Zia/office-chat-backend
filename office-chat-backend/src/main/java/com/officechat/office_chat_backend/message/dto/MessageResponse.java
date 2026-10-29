@@ -27,7 +27,8 @@ public record MessageResponse(
         PollResponse poll,
         boolean read,
         boolean delivered,
-        boolean pinned
+        boolean pinned,
+        boolean forwarded
 ) {
     public static MessageResponse from(Message message, List<AttachmentResponse> attachments) {
         return from(message, attachments, Collections.emptyMap(), Collections.emptyList(), null, false, false);
@@ -67,7 +68,8 @@ public record MessageResponse(
                 poll,
                 read,
                 delivered,
-                message.isPinned()
+                message.isPinned(),
+                message.isForwardedMessage()
         );
     }
 }

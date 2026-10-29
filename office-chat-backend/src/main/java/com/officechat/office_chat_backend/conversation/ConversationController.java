@@ -23,6 +23,34 @@ public class ConversationController {
     private final ConversationService conversationService;
     private final MessageService messageService;
     private final SimpMessagingTemplate messagingTemplate;
+    private final com.officechat.office_chat_backend.message.MessageBroadcaster broadcaster;
+
+    @PutMapping("/{id}/pin")
+    public ConversationResponse pin(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable("id") Long conversationId,
+            @RequestBody java.util.Map<String, Boolean> body
+    ) {
+        return conversationService.setPinned(conversationId, currentUser.getId(), Boolean.TRUE.equals(body.get("pinned")));
+    }
+
+    @PutMapping("/{id}/archive")
+    public ConversationResponse archive(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable("id") Long conversationId,
+            @RequestBody java.util.Map<String, Boolean> body
+    ) {
+        return conversationService.setArchived(conversationId, currentUser.getId(), Boolean.TRUE.equals(body.get("archived")));
+    }
+
+    @GetMapping("/{id}/messages/{messageId}/receipts")
+    public List<java.util.Map<String, Object>> receipts(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable("id") Long conversationId,
+            @PathVariable("messageId") Long messageId
+    ) {
+        return conversationService.getReadReceipts(conversationId, messageId, currentUser.getId());
+    }
 
     @GetMapping
     public List<ConversationResponse> getMyConversations(@AuthenticationPrincipal User currentUser) {
@@ -50,10 +78,11 @@ public class ConversationController {
             @AuthenticationPrincipal User currentUser,
             @PathVariable("id") Long conversationId,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "30") int size
+            @RequestParam(defaultValue = "30") int size,
+            @RequestParam(required = false) Long before
     ) {
         try {
-            return messageService.getHistory(conversationId, currentUser.getId(), page, size);
+            return messageService.getHistory(conversationId, currentUser.getId(), page, Math.min(size, 100), before);
         } catch (Exception e) {
             System.err.println("GET MESSAGES ERROR: " + e.getClass().getName() + " - " + e.getMessage());
             e.printStackTrace();
@@ -70,7 +99,7 @@ public class ConversationController {
         MessageResponse response = messageService.send(
                 conversationId, currentUser, request.content(), request.type(), request.attachmentId()
         );
-        messagingTemplate.convertAndSend("/topic/conversation." + conversationId, response);
+        broadcaster.broadcastNew(response);
         return response;
     }
 
@@ -103,6 +132,43 @@ public class ConversationController {
             @PathVariable("userId") Long targetUserId
     ) {
         return conversationService.removeMemberFromGroup(conversationId, currentUser.getId(), targetUserId);
+    }
+
+    @PutMapping("/{id}/members/{userId}/admin")
+    public ConversationResponse setMemberAdmin(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable("id") Long conversationId,
+            @PathVariable("userId") Long targetUserId,
+            @RequestBody java.util.Map<String, Boolean> body
+    ) {
+        boolean admin = Boolean.TRUE.equals(body.get("admin"));
+        return conversationService.setMemberAdmin(conversationId, currentUser.getId(), targetUserId, admin);
+    }
+
+    @GetMapping("/{id}")
+    public ConversationResponse getConversation(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable("id") Long conversationId
+    ) {
+        return conversationService.getConversation(conversationId, currentUser.getId());
+    }
+
+    /** Clear chat history for the current user only. */
+    @PostMapping("/{id}/clear")
+    public ConversationResponse clearChat(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable("id") Long conversationId
+    ) {
+        return conversationService.clearChat(conversationId, currentUser.getId());
+    }
+
+    /** Delete chat from the current user's list (reappears when a new message arrives). */
+    @DeleteMapping("/{id}")
+    public void deleteChat(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable("id") Long conversationId
+    ) {
+        conversationService.deleteChatForMe(conversationId, currentUser.getId());
     }
 
     @PostMapping("/{id}/messages/{messageId}/reactions")

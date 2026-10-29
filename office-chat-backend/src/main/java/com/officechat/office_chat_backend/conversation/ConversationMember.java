@@ -38,6 +38,30 @@ public class ConversationMember {
     @Column(name = "is_admin", nullable = false)
     private boolean isAdmin;
 
+    @Column(name = "cleared_at")
+    private Instant clearedAt; // messages at or before this are hidden for this member
+
+    @Column(name = "hidden")
+    private Boolean hidden; // "deleted" from this member's chat list; null = visible
+
+    public boolean isHiddenForMember() {
+        return Boolean.TRUE.equals(hidden);
+    }
+
+    @Column(name = "pinned")
+    private Boolean pinned; // pinned to the top of this member's chat list
+
+    @Column(name = "archived")
+    private Boolean archived; // moved to this member's "Archived" section
+
+    public boolean isPinnedForMember() {
+        return Boolean.TRUE.equals(pinned);
+    }
+
+    public boolean isArchivedForMember() {
+        return Boolean.TRUE.equals(archived);
+    }
+
     @PrePersist
     protected void onJoin() {
         this.joinedAt = Instant.now();

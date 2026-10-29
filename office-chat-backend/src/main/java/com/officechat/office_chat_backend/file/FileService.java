@@ -18,8 +18,15 @@ public class FileService {
     private final FileStorageService storageService;
     private final AttachmentRepository attachmentRepository;
     private final ConversationService conversationService;
+    private final DownloadUrlSigner urlSigner;
+    private final com.officechat.office_chat_backend.common.RateLimiter rateLimiter;
 
     public Attachment upload(MultipartFile file, Long conversationId, User uploader) {
+        if (uploader == null) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "Login required");
+        }
+        rateLimiter.check("upload:" + uploader.getId(), 30, java.time.Duration.ofMinutes(1),
+                "You're uploading too fast. Please wait a moment.");
         conversationService.assertMember(conversationId, uploader.getId());
 
         FileStorageService.StoredFile stored = storageService.store(file);
@@ -36,12 +43,18 @@ public class FileService {
         return attachmentRepository.save(attachment);
     }
 
-    public Resource download(Long attachmentId, User requester) {
+    /**
+     * Access is granted to a logged-in member of the attachment's conversation, or to anyone
+     * presenting a valid, unexpired signature from {@link DownloadUrlSigner}.
+     */
+    public Resource download(Long attachmentId, User requester, Long exp, String sig) {
         Attachment attachment = attachmentRepository.findById(attachmentId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "File not found"));
 
         if (requester != null) {
             conversationService.assertMember(attachment.getConversationId(), requester.getId());
+        } else if (!urlSigner.isValid(attachmentId, exp, sig)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "This download link is invalid or has expired");
         }
 
         return storageService.load(attachment.getStoredFileName());

@@ -41,20 +41,52 @@ public class MessageService {
     private final PresenceService presenceService;
     private final PollRepository pollRepository;
     private final PollService pollService;
+    private final StarredMessageRepository starredMessageRepository;
+    private final com.officechat.office_chat_backend.common.RateLimiter rateLimiter;
+    private final com.officechat.office_chat_backend.audit.AuditService auditService;
 
-    @Transactional
-    public MessageResponse send(Long conversationId, User sender, String content, MessageType type, Long attachmentId) {
+    private static final int MAX_MESSAGE_LENGTH = 10_000;
+
+    /** Membership, admin-only and block checks shared by send and forward. */
+    private Conversation assertCanPost(Long conversationId, User sender) {
         conversationService.assertMember(conversationId, sender.getId());
 
         Conversation conversation = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Conversation not found"));
 
-        if (conversation.isOnlyAdminsCanPost() || conversation.isAnnouncement()) {
-            boolean isAdmin = "ADMIN".equals(sender.getRole());
-            if (!isAdmin) {
-                throw new ApiException(HttpStatus.FORBIDDEN, "Only administrators can post in this conversation");
+        if ((conversation.isOnlyAdminsCanPost() || conversation.isAnnouncement())
+                && !conversationService.isConversationAdmin(conversationId, sender.getId())) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "Only group admins can send messages"
+            );
+        }
+
+        if (conversation.getType() == com.officechat.office_chat_backend.conversation.ConversationType.DIRECT) {
+            boolean blocked = conversationMemberRepository.findByConversationId(conversationId).stream()
+                    .map(m -> m.getUser().getId())
+                    .filter(id -> !id.equals(sender.getId()))
+                    .anyMatch(otherId -> conversationService.isBlockedBetween(sender.getId(), otherId));
+            if (blocked) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "You can't send messages in this chat");
             }
         }
+
+        return conversation;
+    }
+
+    @Transactional
+    public MessageResponse send(Long conversationId, User sender, String content, MessageType type, Long attachmentId) {
+        rateLimiter.check("msg-burst:" + sender.getId(), 15, Duration.ofSeconds(10),
+                "You're sending messages too quickly. Slow down a little.");
+        rateLimiter.check("msg:" + sender.getId(), 120, Duration.ofMinutes(1),
+                "Message limit reached. Please wait a minute.");
+        if (content != null && content.length() > MAX_MESSAGE_LENGTH) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Messages can be at most " + MAX_MESSAGE_LENGTH + " characters");
+        }
+        Conversation conversation = assertCanPost(conversationId, sender);
+
+        conversationService.unhideForAll(conversationId);
 
         Attachment attachment = null;
         if (attachmentId != null) {
@@ -92,13 +124,113 @@ public class MessageService {
         return MessageResponse.from(message, attachmentResponses, Collections.emptyMap(), Collections.emptyList(), null, false, isDelivered);
     }
 
+    /**
+     * Forwards a message to other chats. Attachments are re-linked as new attachment rows
+     * pointing at the same stored file, so each target conversation's access check still works.
+     */
+    @Transactional
+    public List<MessageResponse> forward(Long messageId, User sender, List<Long> targetConversationIds) {
+        rateLimiter.check("fwd:" + sender.getId(), 20, Duration.ofMinutes(1),
+                "You're forwarding too quickly. Please wait a moment.");
+        Message source = messageRepository.findById(messageId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Message not found"));
+        conversationService.assertMember(source.getConversation().getId(), sender.getId());
+
+        if (source.getDeletedAt() != null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Deleted messages can't be forwarded");
+        }
+        if (source.getType() == MessageType.POLL) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Polls can't be forwarded");
+        }
+        if (targetConversationIds == null || targetConversationIds.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Pick at least one chat");
+        }
+
+        List<Attachment> sourceAttachments = attachmentRepository.findByMessageId(source.getId());
+        List<MessageResponse> results = new ArrayList<>();
+
+        for (Long targetId : targetConversationIds.stream().distinct().toList()) {
+            Conversation target = assertCanPost(targetId, sender);
+            conversationService.unhideForAll(targetId);
+
+            Message message = messageRepository.save(Message.builder()
+                    .conversation(target)
+                    .sender(sender)
+                    .content(source.getContent())
+                    .type(source.getType())
+                    .forwarded(true)
+                    .build());
+
+            List<AttachmentResponse> attachmentResponses = new ArrayList<>();
+            for (Attachment att : sourceAttachments) {
+                Attachment copy = attachmentRepository.save(Attachment.builder()
+                        .conversationId(targetId)
+                        .uploadedBy(sender)
+                        .message(message)
+                        .fileName(att.getFileName())
+                        .storedFileName(att.getStoredFileName())
+                        .fileSize(att.getFileSize())
+                        .mimeType(att.getMimeType())
+                        .build());
+                attachmentResponses.add(AttachmentResponse.from(copy));
+            }
+
+            boolean isDelivered = conversationMemberRepository.findByConversationId(targetId).stream()
+                    .filter(m -> !m.getUser().getId().equals(sender.getId()))
+                    .anyMatch(om -> presenceService.isOnline(om.getUser().getId()));
+
+            results.add(MessageResponse.from(message, attachmentResponses, Collections.emptyMap(),
+                    Collections.emptyList(), null, false, isDelivered));
+        }
+        return results;
+    }
+
+    // ── Starred messages (per user, synced across devices) ──────────────
+
     @Transactional(readOnly = true)
-    public List<MessageResponse> getHistory(Long conversationId, Long requestingUserId, int page, int size) {
+    public List<MessageResponse> getStarred(Long userId) {
+        return starredMessageRepository.findByUserIdOrderByStarredAtDesc(userId).stream()
+                .map(StarredMessage::getMessage)
+                .filter(m -> m.getDeletedAt() == null)
+                .filter(m -> conversationMemberRepository.existsByConversationIdAndUserId(m.getConversation().getId(), userId))
+                .map(m -> getSingleMessageResponse(m, userId))
+                .toList();
+    }
+
+    @Transactional
+    public MessageResponse star(Long messageId, Long userId) {
+        Message message = messageRepository.findById(messageId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Message not found"));
+        conversationService.assertMember(message.getConversation().getId(), userId);
+
+        if (!starredMessageRepository.existsByUserIdAndMessageId(userId, messageId)) {
+            starredMessageRepository.save(StarredMessage.builder().userId(userId).message(message).build());
+        }
+        return getSingleMessageResponse(message, userId);
+    }
+
+    @Transactional
+    public void unstar(Long messageId, Long userId) {
+        starredMessageRepository.findByUserIdAndMessageId(userId, messageId)
+                .ifPresent(starredMessageRepository::delete);
+    }
+
+    /**
+     * History, newest page first. With {@code beforeId} it returns the page of messages older than
+     * that id (cursor paging, stable while new messages arrive); otherwise it uses {@code page}.
+     */
+    @Transactional(readOnly = true)
+    public List<MessageResponse> getHistory(Long conversationId, Long requestingUserId, int page, int size, Long beforeId) {
         conversationService.assertMember(conversationId, requestingUserId);
 
-        Pageable pageable = PageRequest.of(page, size);
+        Instant clearedAt = conversationService.getClearedAt(conversationId, requestingUserId);
+        Pageable pageable = PageRequest.of(beforeId != null ? 0 : page, size);
         List<Message> messages = new ArrayList<>(messageRepository
-                .findByConversationIdOrderByCreatedAtDesc(conversationId, pageable)
+                .findByConversationIdAndIdLessThanAndCreatedAtAfterOrderByIdDesc(
+                        conversationId,
+                        beforeId != null ? beforeId : Long.MAX_VALUE,
+                        clearedAt != null ? clearedAt : Instant.EPOCH,
+                        pageable)
                 .getContent());
 
         Collections.reverse(messages);
@@ -208,7 +340,7 @@ public class MessageService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Message not found"));
 
         boolean isSender = message.getSender().getId().equals(user.getId());
-        boolean isAdmin = "ADMIN".equals(user.getRole());
+        boolean isAdmin = user.getRole() == com.officechat.office_chat_backend.user.Role.ADMIN;
 
         if (!isSender && !isAdmin) {
             throw new ApiException(HttpStatus.FORBIDDEN, "You are not authorized to delete this message");
@@ -216,6 +348,12 @@ public class MessageService {
 
         message.setDeletedAt(Instant.now());
         messageRepository.save(message);
+
+        if (!isSender) {
+            auditService.log(user.getId(), "MESSAGE_DELETED_BY_ADMIN", "MESSAGE", message.getId(),
+                    "Deleted a message from " + message.getSender().getName()
+                            + " in conversation #" + message.getConversation().getId());
+        }
 
         return getSingleMessageResponse(message, user.getId());
     }

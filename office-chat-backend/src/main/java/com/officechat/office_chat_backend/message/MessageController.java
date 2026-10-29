@@ -18,6 +18,7 @@ public class MessageController {
 
     private final MessageService messageService;
     private final SimpMessagingTemplate messagingTemplate;
+    private final MessageBroadcaster broadcaster;
 
     @MessageMapping("/chat.send")
     public void sendMessage(@Payload MessageRequest request, Authentication authentication) {
@@ -27,7 +28,7 @@ public class MessageController {
                 request.conversationId(), sender, request.content(), request.type(), request.attachmentId()
         );
 
-        messagingTemplate.convertAndSend("/topic/conversation." + request.conversationId(), response);
+        broadcaster.broadcastNew(response);
     }
 
     // Client sends to: /app/chat.typing

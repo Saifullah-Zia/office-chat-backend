@@ -14,6 +14,7 @@ public class PollController {
 
     private final PollService pollService;
     private final SimpMessagingTemplate messagingTemplate;
+    private final com.officechat.office_chat_backend.message.MessageBroadcaster broadcaster;
 
     @PostMapping("/api/conversations/{id}/polls")
     public MessageResponse createPoll(
@@ -22,7 +23,7 @@ public class PollController {
             @RequestBody CreatePollRequest request
     ) {
         MessageResponse response = pollService.createPoll(conversationId, currentUser, request);
-        messagingTemplate.convertAndSend("/topic/conversation." + conversationId, response);
+        broadcaster.broadcastNew(response);
         return response;
     }
 
