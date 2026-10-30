@@ -69,8 +69,17 @@ public class ConversationService {
 
     @Transactional
     public ConversationResponse createGroup(Long creatorId, String name, List<Long> memberIds) {
+        return createGroup(creatorId, name, memberIds, null, false);
+    }
+
+    @Transactional
+    public ConversationResponse createGroup(Long creatorId, String name, List<Long> memberIds,
+                                            String description, boolean isPublic) {
         Conversation conversation = conversationRepository.save(
-                Conversation.builder().type(ConversationType.GROUP).name(name).createdBy(String.valueOf(creatorId)).build()
+                Conversation.builder().type(ConversationType.GROUP).name(name).createdBy(String.valueOf(creatorId))
+                        .description(description != null && !description.isBlank() ? description.trim() : null)
+                        .publicChannel(isPublic ? Boolean.TRUE : null)
+                        .build()
         );
 
         addMember(conversation, creatorId);
@@ -270,7 +279,8 @@ public class ConversationService {
                 .toList();
     }
 
-    /** All member user emails, for per-user STOMP notifications. */
+    /** All member user emails, for per-user STOMP notifications. Transactional: also called from schedulers. */
+    @Transactional(readOnly = true)
     public List<String> getMemberEmails(Long conversationId) {
         return memberRepository.findByConversationId(conversationId).stream()
                 .map(m -> m.getUser().getEmail())
@@ -281,6 +291,181 @@ public class ConversationService {
         return memberRepository.findByUserId(userId).stream()
                 .map(m -> m.getConversation().getId())
                 .toList();
+    }
+
+    private boolean isGlobalAdmin(Long userId) {
+        return userRepository.findById(userId).map(u -> u.getRole() == Role.ADMIN).orElse(false);
+    }
+
+    // ── Visibility: clear-chat point + disappearing messages ──────────────
+
+    @org.springframework.beans.factory.annotation.Value("${app.retention.max-days:0}")
+    private int orgMaxRetentionDays;
+
+    /** Messages created at or before this instant are hidden from this member. */
+    public Instant getVisibleSince(Long conversationId, Long userId) {
+        Instant since = Instant.EPOCH;
+        Instant cleared = getClearedAt(conversationId, userId);
+        if (cleared != null) since = cleared;
+        Integer days = conversationRepository.findById(conversationId).map(Conversation::getRetentionDays).orElse(null);
+        int effective = effectiveRetentionDays(days);
+        if (effective > 0) {
+            Instant cutoff = Instant.now().minus(java.time.Duration.ofDays(effective));
+            if (cutoff.isAfter(since)) since = cutoff;
+        }
+        return since;
+    }
+
+    /** The stricter of the chat's own setting and the organisation-wide maximum (0 = none). */
+    public int effectiveRetentionDays(Integer chatDays) {
+        int chat = chatDays != null && chatDays > 0 ? chatDays : 0;
+        int org = Math.max(orgMaxRetentionDays, 0);
+        if (chat == 0) return org;
+        if (org == 0) return chat;
+        return Math.min(chat, org);
+    }
+
+    private static final java.util.Set<Integer> ALLOWED_RETENTION = java.util.Set.of(0, 1, 7, 30, 90);
+
+    /** Direct chats: either person may change it. Groups: admins only. */
+    @Transactional
+    public ConversationResponse setRetention(Long conversationId, Long requesterId, Integer days) {
+        Conversation conversation = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Conversation not found"));
+        if (conversation.getType() == ConversationType.GROUP) assertConversationAdmin(conversationId, requesterId);
+        else assertMember(conversationId, requesterId);
+
+        int d = days == null ? 0 : days;
+        if (!ALLOWED_RETENTION.contains(d)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Choose off, 1, 7, 30 or 90 days");
+        }
+        conversation.setRetentionDays(d == 0 ? null : d);
+        conversationRepository.save(conversation);
+        auditService.log(requesterId, "RETENTION_CHANGED", "CONVERSATION", conversationId,
+                (d == 0 ? "Turned off disappearing messages" : "Set disappearing messages to " + d + " day(s)")
+                        + (conversation.getType() == ConversationType.GROUP ? " in " + groupLabel(conversation) : ""));
+        return toResponse(conversation, requesterId);
+    }
+
+    // ── Group details & public channels ───────────────────────────────────
+
+    /** Body fields are optional: name, description, isPublic. Admins only. */
+    @Transactional
+    public ConversationResponse updateDetails(Long conversationId, Long requesterId, String name, String description, Boolean isPublic) {
+        assertConversationAdmin(conversationId, requesterId);
+        Conversation c = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Group not found"));
+        if (c.getType() != ConversationType.GROUP) throw new ApiException(HttpStatus.BAD_REQUEST, "Only groups have details");
+        if (name != null) {
+            String n = name.trim();
+            if (n.isEmpty() || n.length() > 100) throw new ApiException(HttpStatus.BAD_REQUEST, "Name must be 1–100 characters");
+            c.setName(n);
+        }
+        if (description != null) {
+            String d = description.trim();
+            if (d.length() > 1000) throw new ApiException(HttpStatus.BAD_REQUEST, "Description is too long");
+            c.setDescription(d.isEmpty() ? null : d);
+        }
+        if (isPublic != null) c.setPublicChannel(isPublic ? Boolean.TRUE : null);
+        conversationRepository.save(c);
+        auditService.log(requesterId, "GROUP_DETAILS_CHANGED", "CONVERSATION", conversationId,
+                "Updated " + groupLabel(c) + (isPublic != null ? " (public channel: " + isPublic + ")" : ""));
+        return toResponse(c, requesterId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<java.util.Map<String, Object>> listPublicChannels(Long userId, String query) {
+        String q = query == null ? "" : query.trim().toLowerCase();
+        return conversationRepository.findByTypeAndPublicChannelTrueOrderByNameAsc(ConversationType.GROUP).stream()
+                .filter(c -> q.isEmpty()
+                        || (c.getName() != null && c.getName().toLowerCase().contains(q))
+                        || (c.getDescription() != null && c.getDescription().toLowerCase().contains(q)))
+                .map(c -> {
+                    java.util.Map<String, Object> v = new java.util.LinkedHashMap<>();
+                    v.put("id", c.getId());
+                    v.put("name", c.getName());
+                    v.put("description", c.getDescription());
+                    v.put("memberCount", memberRepository.findByConversationId(c.getId()).size());
+                    v.put("isMember", memberRepository.existsByConversationIdAndUserId(c.getId(), userId));
+                    return v;
+                })
+                .toList();
+    }
+
+    @Transactional
+    public ConversationResponse joinPublicChannel(Long conversationId, Long userId) {
+        Conversation c = conversationRepository.findById(conversationId)
+                .filter(Conversation::isPublicChannel)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Channel not found"));
+        if (!memberRepository.existsByConversationIdAndUserId(conversationId, userId)) {
+            addMember(c, userId);
+            auditService.log(userId, "MEMBER_JOINED", "CONVERSATION", conversationId, "Joined public channel " + groupLabel(c));
+        }
+        return toResponse(c, userId);
+    }
+
+    // ── Invite links ──────────────────────────────────────────────────────
+
+    private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
+
+    private static String newInviteCode() {
+        byte[] bytes = new byte[18]; // 144 bits → 24 URL-safe chars, not guessable
+        RANDOM.nextBytes(bytes);
+        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    /** Creates (or replaces, invalidating the old link) the group's invite code. Admins only. */
+    @Transactional
+    public ConversationResponse resetInviteLink(Long conversationId, Long requesterId) {
+        assertConversationAdmin(conversationId, requesterId);
+        Conversation c = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Group not found"));
+        if (c.getType() != ConversationType.GROUP) throw new ApiException(HttpStatus.BAD_REQUEST, "Only groups have invite links");
+        c.setInviteCode(newInviteCode());
+        conversationRepository.save(c);
+        auditService.log(requesterId, "INVITE_LINK_RESET", "CONVERSATION", conversationId, "New invite link for " + groupLabel(c));
+        return toResponse(c, requesterId);
+    }
+
+    @Transactional
+    public ConversationResponse disableInviteLink(Long conversationId, Long requesterId) {
+        assertConversationAdmin(conversationId, requesterId);
+        Conversation c = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Group not found"));
+        c.setInviteCode(null);
+        conversationRepository.save(c);
+        auditService.log(requesterId, "INVITE_LINK_DISABLED", "CONVERSATION", conversationId, "Disabled invite link for " + groupLabel(c));
+        return toResponse(c, requesterId);
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.Map<String, Object> previewInvite(String code, Long userId) {
+        Conversation c = findByInvite(code);
+        java.util.Map<String, Object> v = new java.util.LinkedHashMap<>();
+        v.put("conversationId", c.getId());
+        v.put("name", c.getName());
+        v.put("description", c.getDescription());
+        v.put("memberCount", memberRepository.findByConversationId(c.getId()).size());
+        v.put("isMember", memberRepository.existsByConversationIdAndUserId(c.getId(), userId));
+        return v;
+    }
+
+    @Transactional
+    public ConversationResponse joinByInvite(String code, Long userId) {
+        Conversation c = findByInvite(code);
+        if (!memberRepository.existsByConversationIdAndUserId(c.getId(), userId)) {
+            addMember(c, userId);
+            auditService.log(userId, "MEMBER_JOINED", "CONVERSATION", c.getId(), "Joined " + groupLabel(c) + " via invite link");
+        }
+        return toResponse(c, userId);
+    }
+
+    private Conversation findByInvite(String code) {
+        if (code == null || code.isBlank() || code.length() > 40) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "This invite link is invalid or has been reset");
+        }
+        return conversationRepository.findByInviteCode(code)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "This invite link is invalid or has been reset"));
     }
 
     public Instant getClearedAt(Long conversationId, Long userId) {
@@ -452,7 +637,12 @@ public class ConversationService {
                 blockedByMe,
                 blockedMe,
                 currentMember != null && currentMember.isPinnedForMember(),
-                currentMember != null && currentMember.isArchivedForMember()
+                currentMember != null && currentMember.isArchivedForMember(),
+                conversation.getDescription(),
+                conversation.isPublicChannel(),
+                conversation.getRetentionDays(),
+                currentMember != null && (currentMember.isAdmin() || isGlobalAdmin(currentUserId))
+                        ? conversation.getInviteCode() : null
         );
     }
 }

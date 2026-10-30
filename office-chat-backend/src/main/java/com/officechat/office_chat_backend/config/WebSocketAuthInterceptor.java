@@ -19,6 +19,7 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
 
     private final JwtService jwtService;
     private final UserService userService;
+    private final com.officechat.office_chat_backend.auth.SessionService sessionService;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -34,7 +35,9 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
             String token = authHeader.substring(7);
             User user = userService.loadUserByUsername(jwtService.extractEmail(token));
 
-            if (!jwtService.isTokenValid(token, user)) {
+            if (!jwtService.isTokenValid(token, user)
+                    || !user.isActive()
+                    || !sessionService.isActive(jwtService.extractSessionId(token))) {
                 throw new AuthenticationCredentialsNotFoundException("Invalid or expired token");
             }
 

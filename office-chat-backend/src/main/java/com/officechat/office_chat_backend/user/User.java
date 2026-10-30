@@ -54,6 +54,33 @@ public class User implements UserDetails {
     @Column(name = "last_seen_at")
     private Instant lastSeenAt;
 
+    // ── Two-factor authentication (authenticator app / TOTP) ─────────────
+    @JsonIgnore
+    @Column(name = "totp_secret", length = 64)
+    private String totpSecret;
+
+    /** Secret shown during setup, promoted to totpSecret once the user proves they scanned it. */
+    @JsonIgnore
+    @Column(name = "totp_pending_secret", length = 64)
+    private String totpPendingSecret;
+
+    @Column(name = "totp_enabled")
+    private Boolean totpEnabled;
+
+    /** Last accepted TOTP time-step, so a code can't be replayed. */
+    @JsonIgnore
+    @Column(name = "totp_last_step")
+    private Long totpLastStep;
+
+    /** BCrypt hashes of single-use recovery codes, newline-separated. */
+    @JsonIgnore
+    @Column(name = "recovery_codes", columnDefinition = "TEXT")
+    private String recoveryCodes;
+
+    public boolean isTwoFactorEnabled() {
+        return Boolean.TRUE.equals(totpEnabled) && totpSecret != null;
+    }
+
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 

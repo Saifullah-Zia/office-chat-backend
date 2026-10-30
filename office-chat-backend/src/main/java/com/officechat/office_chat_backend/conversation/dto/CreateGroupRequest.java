@@ -7,5 +7,7 @@ import java.util.List;
 
 public record CreateGroupRequest(
         @NotBlank String name,
-        @NotEmpty List<Long> memberIds
+        @NotEmpty List<Long> memberIds,
+        String description,   // optional
+        Boolean isPublic      // optional: list as a public channel
 ) {}

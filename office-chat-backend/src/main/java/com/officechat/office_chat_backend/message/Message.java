@@ -58,6 +58,10 @@ public class Message {
         return Boolean.TRUE.equals(forwarded);
     }
 
+    /** Set for replies inside a thread: the id of the thread's root message. */
+    @Column(name = "thread_root_id")
+    private Long threadRootId;
+
     @PrePersist
     protected void onCreate() {
         this.createdAt = Instant.now();

@@ -23,6 +23,30 @@ public class MessageRestController {
         return messageService.getStarred(currentUser.getId());
     }
 
+    /** Server-side search across my chats. has = link | image | file | voice; from/to are ISO-8601 instants. */
+    @GetMapping("/search")
+    public List<MessageResponse> search(
+            @AuthenticationPrincipal User currentUser,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) Long conversationId,
+            @RequestParam(required = false) Long senderId,
+            @RequestParam(required = false) java.time.Instant from,
+            @RequestParam(required = false) java.time.Instant to,
+            @RequestParam(required = false) String has,
+            @RequestParam(defaultValue = "40") int limit
+    ) {
+        return messageService.search(currentUser.getId(), q, conversationId, senderId, from, to, has, limit);
+    }
+
+    /** @mentions of me, @all/@here in my groups, and replies to me — newest first. */
+    @GetMapping("/mentions")
+    public List<MessageResponse> mentions(
+            @AuthenticationPrincipal User currentUser,
+            @RequestParam(defaultValue = "50") int limit
+    ) {
+        return messageService.mentions(currentUser, limit);
+    }
+
     @PostMapping("/{messageId}/star")
     public MessageResponse star(@AuthenticationPrincipal User currentUser, @PathVariable Long messageId) {
         return messageService.star(messageId, currentUser.getId());

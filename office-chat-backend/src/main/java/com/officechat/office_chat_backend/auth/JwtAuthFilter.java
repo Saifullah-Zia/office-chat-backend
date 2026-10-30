@@ -24,6 +24,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final UserService userService;
+    private final SessionService sessionService;
 
     /** Only skip JWT filtering for login endpoint when no token is needed */
     @Override
@@ -61,6 +62,15 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 User user = userService.loadUserByUsername(email);
 
                 if (jwtService.isTokenValid(token, user)) {
+                    // Signed out from another device ("Log out other sessions")
+                    String sid = jwtService.extractSessionId(token);
+                    if (!sessionService.isActive(sid)) {
+                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                        response.setContentType("application/json");
+                        response.getWriter().write("{\"error\":\"This session was signed out. Please log in again.\"}");
+                        return;
+                    }
+                    request.setAttribute(JwtService.SESSION_CLAIM, sid);
                     // Block deactivated users even if their JWT is still valid
                     if (!user.isActive()) {
                         System.out.println("JWT FILTER [DEACTIVATED]: URI=" + request.getRequestURI() + " user=" + email);

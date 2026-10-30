@@ -25,6 +25,69 @@ public class ConversationController {
     private final SimpMessagingTemplate messagingTemplate;
     private final com.officechat.office_chat_backend.message.MessageBroadcaster broadcaster;
 
+    // ── Threads ──────────────────────────────────────────────────────────
+
+    /** Root message first, then replies oldest → newest. */
+    @GetMapping("/{id}/messages/{rootId}/thread")
+    public List<MessageResponse> getThread(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable("id") Long conversationId,
+            @PathVariable("rootId") Long rootId
+    ) {
+        return messageService.getThread(conversationId, rootId, currentUser.getId());
+    }
+
+    /** Body: { content, attachmentId? } — posts a reply and re-broadcasts the root with its new reply count. */
+    @PostMapping("/{id}/messages/{rootId}/thread")
+    public MessageResponse replyInThread(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable("id") Long conversationId,
+            @PathVariable("rootId") Long rootId,
+            @RequestBody com.officechat.office_chat_backend.message.dto.MessageRequest request
+    ) {
+        MessageResponse reply = messageService.send(conversationId, currentUser, request.content(),
+                request.type(), request.attachmentId(), rootId);
+        broadcaster.broadcastNew(reply);
+        messagingTemplate.convertAndSend("/topic/conversation." + conversationId,
+                messageService.getMessageView(rootId, currentUser.getId()));
+        return reply;
+    }
+
+    // ── Group details, disappearing messages, invite links ──────────────
+
+    /** Body (all optional): { name, description, isPublic } — group admins only. */
+    @PutMapping("/{id}/details")
+    public ConversationResponse updateDetails(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable("id") Long conversationId,
+            @RequestBody java.util.Map<String, Object> body
+    ) {
+        Object pub = body.get("isPublic");
+        return conversationService.updateDetails(conversationId, currentUser.getId(),
+                (String) body.get("name"), (String) body.get("description"),
+                pub == null ? null : Boolean.valueOf(pub.toString()));
+    }
+
+    /** Body: { days: 0 | 1 | 7 | 30 | 90 } */
+    @PutMapping("/{id}/retention")
+    public ConversationResponse setRetention(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable("id") Long conversationId,
+            @RequestBody java.util.Map<String, Integer> body
+    ) {
+        return conversationService.setRetention(conversationId, currentUser.getId(), body.get("days"));
+    }
+
+    @PostMapping("/{id}/invite")
+    public ConversationResponse resetInvite(@AuthenticationPrincipal User currentUser, @PathVariable("id") Long conversationId) {
+        return conversationService.resetInviteLink(conversationId, currentUser.getId());
+    }
+
+    @DeleteMapping("/{id}/invite")
+    public ConversationResponse disableInvite(@AuthenticationPrincipal User currentUser, @PathVariable("id") Long conversationId) {
+        return conversationService.disableInviteLink(conversationId, currentUser.getId());
+    }
+
     @PutMapping("/{id}/pin")
     public ConversationResponse pin(
             @AuthenticationPrincipal User currentUser,
@@ -70,7 +133,8 @@ public class ConversationController {
             @AuthenticationPrincipal User currentUser,
             @Valid @RequestBody CreateGroupRequest request
     ) {
-        return conversationService.createGroup(currentUser.getId(), request.name(), request.memberIds());
+        return conversationService.createGroup(currentUser.getId(), request.name(), request.memberIds(),
+                request.description(), Boolean.TRUE.equals(request.isPublic()));
     }
 
     @GetMapping("/{id}/messages")

@@ -42,6 +42,26 @@ public class Conversation {
     @Column(name = "is_announcement", nullable = false)
     @Builder.Default
     private boolean isAnnouncement = false;
+
+    @Column(columnDefinition = "TEXT")
+    private String description;
+
+    /** Public channel: listed in the channel browser and joinable by anyone. */
+    @Column(name = "is_public")
+    private Boolean publicChannel;
+
+    /** Secret code for "join via link"; null = links disabled. */
+    @Column(name = "invite_code", unique = true, length = 40)
+    private String inviteCode;
+
+    /** Disappearing messages: messages older than this many days are removed. null/0 = keep forever. */
+    @Column(name = "retention_days")
+    private Integer retentionDays;
+
+    public boolean isPublicChannel() {
+        return Boolean.TRUE.equals(publicChannel);
+    }
+
     @PrePersist
     protected  void oncreate(){
         this.createdAt =Instant.now();

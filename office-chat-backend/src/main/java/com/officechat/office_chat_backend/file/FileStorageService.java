@@ -96,6 +96,17 @@ public class FileStorageService {
         }
     }
 
+    /** Removes a stored file from disk; missing files are ignored. */
+    public void delete(String storedFileName) {
+        try {
+            Path base = resolveUploadPath();
+            Path target = base.resolve(storedFileName).normalize();
+            if (target.startsWith(base)) Files.deleteIfExists(target);
+        } catch (IOException e) {
+            System.err.println("Could not delete stored file " + storedFileName + ": " + e.getMessage());
+        }
+    }
+
     private String getExtension(String fileName) {
         int dotIndex = fileName.lastIndexOf('.');
         return dotIndex == -1 ? "" : fileName.substring(dotIndex + 1);

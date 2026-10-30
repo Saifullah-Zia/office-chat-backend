@@ -77,6 +77,26 @@ public class MessageService {
 
     @Transactional
     public MessageResponse send(Long conversationId, User sender, String content, MessageType type, Long attachmentId) {
+        return send(conversationId, sender, content, type, attachmentId, null);
+    }
+
+    /** @param threadRootId when set, the message is a reply in that thread (one level deep only). */
+    @Transactional
+    public MessageResponse send(Long conversationId, User sender, String content, MessageType type,
+                                Long attachmentId, Long threadRootId) {
+        if (threadRootId != null) {
+            Message root = messageRepository.findById(threadRootId)
+                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Thread not found"));
+            if (!root.getConversation().getId().equals(conversationId)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "That thread belongs to another chat");
+            }
+            if (root.getThreadRootId() != null) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Replies can't have their own threads");
+            }
+            if (root.getDeletedAt() != null) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "This message was deleted");
+            }
+        }
         rateLimiter.check("msg-burst:" + sender.getId(), 15, Duration.ofSeconds(10),
                 "You're sending messages too quickly. Slow down a little.");
         rateLimiter.check("msg:" + sender.getId(), 120, Duration.ofMinutes(1),
@@ -104,6 +124,7 @@ public class MessageService {
                 .sender(sender)
                 .content(content != null ? content : "")
                 .type(resolveType(type, attachment))
+                .threadRootId(threadRootId)
                 .build();
 
         message = messageRepository.save(message);
@@ -185,6 +206,58 @@ public class MessageService {
         return results;
     }
 
+    // ── Search & mentions ───────────────────────────────────────────────
+
+    private static String likeEscape(String s) {
+        return s.toLowerCase().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
+    @Transactional(readOnly = true)
+    public List<MessageResponse> search(Long userId, String q, Long conversationId, Long senderId,
+                                        Instant from, Instant to, String has, int limit) {
+        List<Long> convIds = conversationService.getConversationIdsForUser(userId);
+        if (conversationId != null) {
+            convIds = convIds.contains(conversationId) ? List.of(conversationId) : List.of();
+        }
+        if (convIds.isEmpty()) return List.of();
+
+        String text = q == null ? "" : q.trim();
+        if (text.length() > 200) text = text.substring(0, 200);
+        String hasFilter = has == null ? "" : has.trim().toLowerCase();
+        if (!List.of("", "link", "image", "file", "voice").contains(hasFilter)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Unknown filter: " + has);
+        }
+        if (text.isEmpty() && hasFilter.isEmpty() && senderId == null && from == null && to == null) {
+            return List.of(); // refuse an unfiltered dump of every message
+        }
+
+        List<Message> found = messageRepository.search(
+                convIds,
+                text,
+                "%" + likeEscape(text) + "%",
+                senderId != null ? senderId : -1L,
+                from != null ? from : Instant.EPOCH,
+                to != null ? to : Instant.now().plus(Duration.ofDays(1)),
+                hasFilter,
+                PageRequest.of(0, Math.min(Math.max(limit, 1), 100)));
+        return found.stream().map(m -> getSingleMessageResponse(m, userId)).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<MessageResponse> mentions(User user, int limit) {
+        List<Long> convIds = conversationService.getConversationIdsForUser(user.getId());
+        if (convIds.isEmpty()) return List.of();
+        String name = likeEscape(user.getName());
+        return messageRepository.findMentions(
+                        convIds, user.getId(),
+                        "%@" + name + "%",
+                        "replying to " + name + ":%",
+                        PageRequest.of(0, Math.min(Math.max(limit, 1), 100)))
+                .stream()
+                .map(m -> getSingleMessageResponse(m, user.getId()))
+                .toList();
+    }
+
     // ── Starred messages (per user, synced across devices) ──────────────
 
     @Transactional(readOnly = true)
@@ -223,19 +296,56 @@ public class MessageService {
     public List<MessageResponse> getHistory(Long conversationId, Long requestingUserId, int page, int size, Long beforeId) {
         conversationService.assertMember(conversationId, requestingUserId);
 
-        Instant clearedAt = conversationService.getClearedAt(conversationId, requestingUserId);
         Pageable pageable = PageRequest.of(beforeId != null ? 0 : page, size);
         List<Message> messages = new ArrayList<>(messageRepository
-                .findByConversationIdAndIdLessThanAndCreatedAtAfterOrderByIdDesc(
+                .findByConversationIdAndThreadRootIdIsNullAndIdLessThanAndCreatedAtAfterOrderByIdDesc(
                         conversationId,
                         beforeId != null ? beforeId : Long.MAX_VALUE,
-                        clearedAt != null ? clearedAt : Instant.EPOCH,
+                        conversationService.getVisibleSince(conversationId, requestingUserId),
                         pageable)
                 .getContent());
 
         Collections.reverse(messages);
+        return toResponses(messages, conversationId, requestingUserId);
+    }
 
+    /** Replies in a thread (oldest first), plus the root as the first element. */
+    @Transactional(readOnly = true)
+    public List<MessageResponse> getThread(Long conversationId, Long rootId, Long requestingUserId) {
+        conversationService.assertMember(conversationId, requestingUserId);
+        Message root = messageRepository.findById(rootId)
+                .filter(m -> m.getConversation().getId().equals(conversationId) && m.getThreadRootId() == null)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Thread not found"));
+        List<Message> all = new ArrayList<>();
+        all.add(root);
+        all.addAll(messageRepository.findByThreadRootIdAndCreatedAtAfterOrderByCreatedAtAsc(
+                rootId, conversationService.getVisibleSince(conversationId, requestingUserId)));
+        return toResponses(all, conversationId, requestingUserId);
+    }
+
+    /** The current state of a thread root (with reply count), for live updates after a reply. */
+    @Transactional(readOnly = true)
+    public MessageResponse getMessageView(Long messageId, Long requestingUserId) {
+        Message m = messageRepository.findById(messageId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Message not found"));
+        return getSingleMessageResponse(m, requestingUserId);
+    }
+
+    private Map<Long, Object[]> threadStatsFor(List<Long> rootIds) {
+        if (rootIds.isEmpty()) return Collections.emptyMap();
+        return messageRepository.threadStats(rootIds).stream()
+                .collect(Collectors.toMap(row -> (Long) row[0], row -> row));
+    }
+
+    private MessageResponse applyThreadStats(MessageResponse r, Map<Long, Object[]> stats) {
+        Object[] row = stats.get(r.id());
+        return row == null ? r : r.withThreadStats(((Number) row[1]).longValue(), (Instant) row[2]);
+    }
+
+    private List<MessageResponse> toResponses(List<Message> messages, Long conversationId, Long requestingUserId) {
         List<Long> msgIds = messages.stream().map(Message::getId).toList();
+        Map<Long, Object[]> threadStats = threadStatsFor(
+                messages.stream().filter(m -> m.getThreadRootId() == null).map(Message::getId).toList());
         List<MessageReaction> allReactions = msgIds.isEmpty() ? Collections.emptyList() : reactionRepository.findByMessageIdIn(msgIds);
         
         Map<Long, Map<String, Integer>> reactionCountsByMsg = allReactions.stream()
@@ -282,7 +392,8 @@ public class MessageService {
                                 .orElse(null);
                     }
 
-                    return MessageResponse.from(m, atts, reactions, details, pollResp, isRead, isDelivered);
+                    return applyThreadStats(
+                            MessageResponse.from(m, atts, reactions, details, pollResp, isRead, isDelivered), threadStats);
                 })
                 .toList();
     }
@@ -405,7 +516,10 @@ public class MessageService {
                     .orElse(null);
         }
 
-        return MessageResponse.from(message, atts, reactionCounts, reactionDetails, pollResp, isRead, isDelivered);
+        MessageResponse response = MessageResponse.from(message, atts, reactionCounts, reactionDetails, pollResp, isRead, isDelivered);
+        return message.getThreadRootId() == null
+                ? applyThreadStats(response, threadStatsFor(List.of(message.getId())))
+                : response;
     }
 
     private MessageType resolveType(MessageType requestedType, Attachment attachment) {

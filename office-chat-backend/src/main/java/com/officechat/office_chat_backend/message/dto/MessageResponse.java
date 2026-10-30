@@ -28,8 +28,18 @@ public record MessageResponse(
         boolean read,
         boolean delivered,
         boolean pinned,
-        boolean forwarded
+        boolean forwarded,
+        Long threadRootId,          // set on thread replies
+        long threadReplyCount,      // set on thread roots
+        Instant threadLastReplyAt   // set on thread roots
 ) {
+    /** Copy with thread statistics filled in (for root messages). */
+    public MessageResponse withThreadStats(long replyCount, Instant lastReplyAt) {
+        return new MessageResponse(id, conversationId, senderId, senderName, content, type, createdAt, editedAt,
+                edited, deleted, attachments, reactions, reactionDetails, poll, read, delivered, pinned, forwarded,
+                threadRootId, replyCount, lastReplyAt);
+    }
+
     public static MessageResponse from(Message message, List<AttachmentResponse> attachments) {
         return from(message, attachments, Collections.emptyMap(), Collections.emptyList(), null, false, false);
     }
@@ -69,7 +79,10 @@ public record MessageResponse(
                 read,
                 delivered,
                 message.isPinned(),
-                message.isForwardedMessage()
+                message.isForwardedMessage(),
+                message.getThreadRootId(),
+                0L,
+                null
         );
     }
 }

@@ -20,5 +20,9 @@ public record ConversationResponse(
         boolean blockedByMe,      // DIRECT only: I blocked the other member
         boolean blockedMe,        // DIRECT only: the other member blocked me
         boolean pinned,           // pinned in my chat list
-        boolean archived          // archived in my chat list
+        boolean archived,         // archived in my chat list
+        String description,
+        boolean isPublic,         // listed in the channel browser
+        Integer retentionDays,    // disappearing messages (null = off)
+        String inviteCode         // only sent to group admins
 ) {}
