@@ -59,11 +59,20 @@ public class ProfileService {
         return storageService.load(fileName);
     }
 
-    /** People edit their own job title; department and manager are set by admins. */
+    /** People edit their own name, job title and department; the manager is set by admins. */
     @Transactional
-    public UserResponse updateOwnProfile(Long userId, String jobTitle) {
+    public UserResponse updateOwnProfile(Long userId, String name, String jobTitle, boolean setDepartment, String department) {
         User user = load(userId);
+        if (name != null) {
+            String newName = clean(name, 100);
+            if (newName == null || newName.length() < 2) throw new ApiException(HttpStatus.BAD_REQUEST, "Enter your name (at least 2 characters)");
+            if (!newName.equals(user.getName())) {
+                auditService.log(userId, "USER_RENAMED", "USER", userId, "\"" + user.getName() + "\" → \"" + newName + "\"");
+                user.setName(newName);
+            }
+        }
         user.setJobTitle(clean(jobTitle, 100));
+        if (setDepartment) user.setDepartment(clean(department, 100));
         return saveAndBroadcast(user);
     }
 

@@ -32,10 +32,11 @@ public class ProfileController {
         return profileService.removePhoto(user.getId());
     }
 
-    /** Body: { jobTitle } */
+    /** Body: { name?, jobTitle, department? } (omitted name/department are left as they are) */
     @PutMapping("/me/profile")
     public UserResponse updateMyProfile(@AuthenticationPrincipal User user, @RequestBody Map<String, String> body) {
-        return profileService.updateOwnProfile(user.getId(), body.get("jobTitle"));
+        return profileService.updateOwnProfile(user.getId(), body.get("name"), body.get("jobTitle"),
+                body.containsKey("department"), body.get("department"));
     }
 
     /** Body: { jobTitle, department, managerId } */
