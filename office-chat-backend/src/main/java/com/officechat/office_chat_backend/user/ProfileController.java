@@ -20,6 +20,7 @@ import java.util.Map;
 public class ProfileController {
 
     private final ProfileService profileService;
+    private final com.officechat.office_chat_backend.auth.PasswordService passwordService;
 
     @PostMapping("/me/photo")
     public UserResponse uploadPhoto(@AuthenticationPrincipal User user, @RequestParam("file") MultipartFile file) {
@@ -45,6 +46,18 @@ public class ProfileController {
         Object manager = body.get("managerId");
         return profileService.adminUpdateProfile(admin.getId(), userId, (String) body.get("jobTitle"),
                 (String) body.get("department"), manager == null ? null : ((Number) manager).longValue());
+    }
+
+    /**
+     * Admin: issue a temporary password (shown once). Body: { disableTwoFactor? }.
+     * The person is signed out everywhere and must choose a new password at next login.
+     */
+    @PostMapping("/admin/{userId}/reset-password")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Map<String, String> resetPassword(@AuthenticationPrincipal User admin, @PathVariable Long userId,
+                                             @RequestBody(required = false) Map<String, Object> body) {
+        boolean disable2fa = body != null && Boolean.TRUE.equals(body.get("disableTwoFactor"));
+        return Map.of("temporaryPassword", passwordService.adminReset(admin, userId, disable2fa));
     }
 
     /** Public by URL (random name); file names change on every upload, so they can be cached for long. */

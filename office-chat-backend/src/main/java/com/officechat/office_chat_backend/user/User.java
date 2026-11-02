@@ -84,6 +84,14 @@ public class User implements UserDetails {
     @Column(name = "recovery_codes", columnDefinition = "TEXT")
     private String recoveryCodes;
 
+    // Set when an admin issues a temporary password; the next login must choose a new one.
+    @Column(name = "must_change_password")
+    private Boolean mustChangePassword;
+
+    public boolean isPasswordChangeRequired() {
+        return Boolean.TRUE.equals(mustChangePassword);
+    }
+
     public boolean isTwoFactorEnabled() {
         return Boolean.TRUE.equals(totpEnabled) && totpSecret != null;
     }

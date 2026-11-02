@@ -14,13 +14,16 @@ public record AuthResponse(
         String email,
         Role role,
         boolean mfaRequired,
-        String mfaToken
+        String mfaToken,
+        /** Signed in with a temporary password: the app must ask for a new one before anything else. */
+        boolean mustChangePassword
 ) {
     public static AuthResponse ok(String token, com.officechat.office_chat_backend.user.User user) {
-        return new AuthResponse(token, user.getId(), user.getName(), user.getEmail(), user.getRole(), false, null);
+        return new AuthResponse(token, user.getId(), user.getName(), user.getEmail(), user.getRole(), false, null,
+                user.isPasswordChangeRequired());
     }
 
     public static AuthResponse mfa(String mfaToken) {
-        return new AuthResponse(null, null, null, null, null, true, mfaToken);
+        return new AuthResponse(null, null, null, null, null, true, mfaToken, false);
     }
 }

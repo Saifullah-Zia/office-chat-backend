@@ -9,7 +9,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-import java.security.SecureRandom;
 import java.util.*;
 
 /**
@@ -21,12 +20,10 @@ import java.util.*;
 public class UserImportController {
 
     private static final int MAX_ROWS = 500;
-    private static final String PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
 
     private final UserService userService;
     private final UserRepository userRepository;
     private final AuditService auditService;
-    private final SecureRandom random = new SecureRandom();
 
     public record ImportRow(String name, String email, String department, String jobTitle, String role) {}
     public record ImportResult(int row, String email, String status, String message, String tempPassword) {}
@@ -63,14 +60,15 @@ public class UserImportController {
                 continue;
             }
             try {
-                String password = tempPassword();
+                String password = com.officechat.office_chat_backend.auth.PasswordService.generateTemporary();
                 Role role = row.role().isEmpty() ? Role.EMPLOYEE : Role.valueOf(row.role());
                 User user = userService.register(new RegisterRequest(row.name(), row.email(), password, role,
                         row.department().isEmpty() ? null : row.department()));
                 if (!row.jobTitle().isEmpty()) {
                     user.setJobTitle(row.jobTitle().length() > 100 ? row.jobTitle().substring(0, 100) : row.jobTitle());
-                    userRepository.save(user);
                 }
+                user.setMustChangePassword(true); // they pick their own at first login
+                userRepository.save(user);
                 results.add(new ImportResult(line, row.email(), "created", null, password));
                 created++;
             } catch (ApiException e) {
@@ -92,11 +90,6 @@ public class UserImportController {
         return null;
     }
 
-    private String tempPassword() {
-        StringBuilder sb = new StringBuilder(12);
-        for (int i = 0; i < 12; i++) sb.append(PASSWORD_CHARS.charAt(random.nextInt(PASSWORD_CHARS.length())));
-        return sb.toString();
-    }
 
     private static String str(Object o) {
         return o == null ? "" : o.toString().trim();

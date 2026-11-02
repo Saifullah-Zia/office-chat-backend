@@ -77,6 +77,14 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                         response.getWriter().write("{\"error\":\"Your account has been deactivated. Please contact your administrator.\"}");
                         return;
                     }
+                    String path = request.getRequestURI();
+                    if (user.isPasswordChangeRequired()
+                            && !path.equals("/api/account/password") && !path.equals("/api/account/logout")) {
+                        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                        response.setContentType("application/json");
+                        response.getWriter().write("{\"error\":\"Please choose a new password first.\",\"code\":\"PASSWORD_CHANGE_REQUIRED\"}");
+                        return;
+                    }
                     UsernamePasswordAuthenticationToken authToken =
                             new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
                     authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));

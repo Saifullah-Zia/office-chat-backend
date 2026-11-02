@@ -17,6 +17,7 @@ public class AccountController {
 
     private final TwoFactorService twoFactorService;
     private final SessionService sessionService;
+    private final PasswordService passwordService;
 
     private static String currentSid(HttpServletRequest request) {
         Object sid = request.getAttribute(JwtService.SESSION_CLAIM);
@@ -59,6 +60,13 @@ public class AccountController {
     @PostMapping("/sessions/revoke-others")
     public Map<String, Integer> revokeOthers(@AuthenticationPrincipal User currentUser, HttpServletRequest request) {
         return Map.of("signedOut", sessionService.revokeAllExcept(currentUser.getId(), currentSid(request)));
+    }
+
+    /** Body: { currentPassword, newPassword }. Signs out other devices. */
+    @PostMapping("/password")
+    public void changePassword(@AuthenticationPrincipal User currentUser, HttpServletRequest request,
+                               @RequestBody Map<String, String> body) {
+        passwordService.change(currentUser, currentSid(request), body.get("currentPassword"), body.get("newPassword"));
     }
 
     /** Signs out this device on the server too, so the token stops working immediately. */
