@@ -80,6 +80,32 @@ public class ConversationController {
         return conversationService.setRetention(conversationId, currentUser.getId(), body.get("days"));
     }
 
+    /** Body: { labels: ["Denial", ...], status: "OPEN" | "DONE" | null } — the chat as a mini ticket. */
+    @PutMapping("/{id}/ticket")
+    public ConversationResponse setTicket(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable("id") Long conversationId,
+            @RequestBody java.util.Map<String, Object> body
+    ) {
+        Object rawLabels = body.get("labels");
+        List<String> labels = rawLabels instanceof List<?> l
+                ? l.stream().map(x -> x == null ? null : x.toString()).toList() : List.of();
+        ConversationResponse updated = conversationService.setTicket(conversationId, currentUser.getId(),
+                labels, (String) body.get("status"));
+
+        // Everyone on staff in the chat sees it change live (chat list + header).
+        java.util.Map<String, Object> event = new java.util.LinkedHashMap<>();
+        event.put("conversationId", conversationId);
+        event.put("labels", updated.labels());
+        event.put("ticketStatus", updated.ticketStatus());
+        event.put("ticketUpdatedByName", updated.ticketUpdatedByName());
+        event.put("ticketUpdatedAt", updated.ticketUpdatedAt());
+        for (String email : conversationService.getStaffMemberEmails(conversationId)) {
+            messagingTemplate.convertAndSendToUser(email, "/queue/conversation-ticket", event);
+        }
+        return updated;
+    }
+
     @PostMapping("/{id}/invite")
     public ConversationResponse resetInvite(@AuthenticationPrincipal User currentUser, @PathVariable("id") Long conversationId) {
         return conversationService.resetInviteLink(conversationId, currentUser.getId());

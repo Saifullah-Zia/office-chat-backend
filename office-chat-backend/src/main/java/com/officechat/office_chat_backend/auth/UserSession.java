@@ -27,6 +27,10 @@ public class UserSession {
     @Column(name = "ip_address", length = 64)
     private String ipAddress;
 
+    /** SHA-256 of the browser's random device id (X-Device-Id), used to spot sign-ins from new devices. */
+    @Column(name = "device_hash", length = 64)
+    private String deviceHash;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

@@ -632,6 +632,7 @@ public class ConversationService {
                 .findFirst()
                 .orElse(null);
         Instant clearedAt = currentMember != null ? currentMember.getClearedAt() : null;
+        boolean staff = currentMember == null || currentMember.getUser().getRole() != Role.PROVIDER;
 
         var lastMessage = java.util.Optional.ofNullable(ctx.lastMessageByConv().get(conversation.getId()))
                 .filter(m -> clearedAt == null || m.getCreatedAt().isAfter(clearedAt));
@@ -704,7 +705,77 @@ public class ConversationService {
                 conversation.isPublicChannel(),
                 conversation.getRetentionDays(),
                 currentMember != null && (currentMember.isAdmin() || ctx.globalAdmin())
-                        ? conversation.getInviteCode() : null
+                        ? conversation.getInviteCode() : null,
+                // Internal billing workflow: providers (external doctors) don't see it.
+                staff ? splitLabels(conversation.getLabels()) : List.of(),
+                staff ? conversation.getTicketStatus() : null,
+                staff && conversation.getTicketUpdatedBy() != null
+                        ? memberRows.stream().map(ConversationMember::getUser)
+                            .filter(u -> u.getId().equals(conversation.getTicketUpdatedBy()))
+                            .map(User::getName).findFirst().orElseGet(() -> userName(conversation.getTicketUpdatedBy()))
+                        : null,
+                staff ? conversation.getTicketUpdatedAt() : null
         );
+    }
+
+    // ── Labels & status (chat as a mini ticket) ───────────────────────────
+
+    private static final java.util.Set<String> TICKET_STATUSES = java.util.Set.of("OPEN", "DONE");
+    private static final int MAX_LABELS = 6;
+    private static final int MAX_LABEL_LENGTH = 30;
+
+    private static List<String> splitLabels(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        return java.util.Arrays.stream(raw.split("\\|")).filter(s -> !s.isBlank()).toList();
+    }
+
+    /** Any staff member of the chat may set its labels and status; everyone in it sees the change live. */
+    @Transactional
+    public ConversationResponse setTicket(Long conversationId, Long requesterId, List<String> labels, String status) {
+        assertMember(conversationId, requesterId);
+        assertNotProvider(requesterId, "Only staff can change labels and status");
+        Conversation c = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Conversation not found"));
+
+        java.util.LinkedHashMap<String, String> clean = new java.util.LinkedHashMap<>(); // lower-case → as typed
+        for (String l : labels == null ? List.<String>of() : labels) {
+            if (l == null) continue;
+            String t = l.trim().replaceAll("\\s+", " ").replace("|", "/");
+            if (t.isEmpty()) continue;
+            if (t.length() > MAX_LABEL_LENGTH) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Labels can be at most " + MAX_LABEL_LENGTH + " characters");
+            }
+            clean.putIfAbsent(t.toLowerCase(), t);
+        }
+        if (clean.size() > MAX_LABELS) throw new ApiException(HttpStatus.BAD_REQUEST, "A chat can have at most " + MAX_LABELS + " labels");
+        String next = status == null || status.isBlank() ? null : status.trim().toUpperCase();
+        if (next != null && !TICKET_STATUSES.contains(next)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Status must be Open, Done or none");
+        }
+
+        String newLabels = clean.isEmpty() ? null : String.join("|", clean.values());
+        boolean changed = !java.util.Objects.equals(newLabels, c.getLabels()) || !java.util.Objects.equals(next, c.getTicketStatus());
+        if (!changed) return toResponse(c, requesterId);
+
+        String before = (c.getTicketStatus() == null ? "no status" : c.getTicketStatus()) + " " + splitLabels(c.getLabels());
+        c.setLabels(newLabels);
+        c.setTicketStatus(next);
+        c.setTicketUpdatedBy(requesterId);
+        c.setTicketUpdatedAt(Instant.now());
+        conversationRepository.save(c);
+        auditService.log(requesterId, "CHAT_TICKET_CHANGED", "CONVERSATION", conversationId,
+                (c.getType() == ConversationType.GROUP ? groupLabel(c) + ": " : "")
+                        + before + " → " + (next == null ? "no status" : next) + " " + splitLabels(newLabels));
+        return toResponse(c, requesterId);
+    }
+
+    /** Staff members of the chat (the ones who see labels), for live updates. */
+    @Transactional(readOnly = true)
+    public List<String> getStaffMemberEmails(Long conversationId) {
+        return memberRepository.findByConversationId(conversationId).stream()
+                .map(ConversationMember::getUser)
+                .filter(u -> u.getRole() != Role.PROVIDER)
+                .map(User::getEmail)
+                .toList();
     }
 }

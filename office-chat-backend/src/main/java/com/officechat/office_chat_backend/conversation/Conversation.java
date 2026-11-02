@@ -58,6 +58,20 @@ public class Conversation {
     @Column(name = "retention_days")
     private Integer retentionDays;
 
+    /** Work-tracking labels shared by everyone in the chat ("Denial", "Pending payer"...), "|"-separated. */
+    @Column(name = "labels", length = 500)
+    private String labels;
+
+    /** Mini-ticket status: null (not tracked), "OPEN" or "DONE". */
+    @Column(name = "ticket_status", length = 10)
+    private String ticketStatus;
+
+    @Column(name = "ticket_updated_by")
+    private Long ticketUpdatedBy;
+
+    @Column(name = "ticket_updated_at")
+    private Instant ticketUpdatedAt;
+
     public boolean isPublicChannel() {
         return Boolean.TRUE.equals(publicChannel);
     }

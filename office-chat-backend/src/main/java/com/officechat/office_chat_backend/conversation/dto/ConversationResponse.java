@@ -24,5 +24,9 @@ public record ConversationResponse(
         String description,
         boolean isPublic,         // listed in the channel browser
         Integer retentionDays,    // disappearing messages (null = off)
-        String inviteCode         // only sent to group admins
+        String inviteCode,        // only sent to group admins
+        List<String> labels,      // work-tracking labels (not shown to providers)
+        String ticketStatus,      // null, "OPEN" or "DONE"
+        String ticketUpdatedByName,
+        Instant ticketUpdatedAt
 ) {}

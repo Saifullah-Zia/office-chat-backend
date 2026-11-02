@@ -9,6 +9,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
@@ -19,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class SessionService {
 
     private final UserSessionRepository repository;
+    private final LoginAlertService loginAlertService;
 
     @Value("${jwt.expiration}")
     private Long expirationMs;
@@ -34,15 +38,34 @@ public class SessionService {
         Instant now = Instant.now();
         String ua = request != null ? request.getHeader("User-Agent") : null;
         String ip = request != null ? clientIp(request) : null;
+        String deviceHash = request != null ? hashDevice(request.getHeader("X-Device-Id")) : null;
+
+        // Alert only once this account has a known device to compare with; the first device
+        // (and anyone who last signed in before device ids existed) is learnt silently.
+        if (deviceHash != null && repository.existsByUserIdAndDeviceHashIsNotNull(user.getId())
+                && !repository.existsByUserIdAndDeviceHash(user.getId(), deviceHash)) {
+            loginAlertService.newDevice(user, ua, now);
+        }
+
         return repository.save(UserSession.builder()
                 .id(UUID.randomUUID().toString())
                 .userId(user.getId())
                 .userAgent(ua != null && ua.length() > 400 ? ua.substring(0, 400) : ua)
                 .ipAddress(ip)
+                .deviceHash(deviceHash)
                 .createdAt(now)
                 .lastActiveAt(now)
                 .expiresAt(now.plusMillis(expirationMs))
                 .build());
+    }
+
+    private static String hashDevice(String deviceId) {
+        if (deviceId == null || !deviceId.matches("[A-Za-z0-9-]{16,64}")) return null;
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(deviceId.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            return null;
+        }
     }
 
     /** True if the session exists, isn't revoked and hasn't expired. Also bumps last-active occasionally. */
