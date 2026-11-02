@@ -21,9 +21,15 @@ public class UserController {
     private final SimpMessagingTemplate messagingTemplate;
     private final com.officechat.office_chat_backend.audit.AuditService auditService;
 
+    /** Everyone active. Providers only see company staff (and themselves), never other providers. */
     @GetMapping
-    public List<UserResponse> getAllUsers() {
-        return userService.getAllActiveUsers();
+    public List<UserResponse> getAllUsers(@AuthenticationPrincipal User currentUser) {
+        boolean admin = currentUser.getRole() == Role.ADMIN;
+        List<UserResponse> all = userService.getAllActiveUsers().stream()
+                .map(u -> u.visibleTo(admin, currentUser.getId()))
+                .toList();
+        if (currentUser.getRole() != Role.PROVIDER) return all;
+        return all.stream().filter(u -> u.getRole() != Role.PROVIDER || u.getId().equals(currentUser.getId())).toList();
     }
 
     // ── Blocking ─────────────────────────────────────────────────────────

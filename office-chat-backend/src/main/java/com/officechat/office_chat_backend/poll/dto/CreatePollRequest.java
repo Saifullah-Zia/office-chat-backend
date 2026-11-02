@@ -5,6 +5,8 @@ import java.util.List;
 public record CreatePollRequest(
         String question,
         boolean multipleAnswers,
-        List<String> options
+        List<String> options,
+        // Optional deadline; voting stops after it
+        java.time.Instant closesAt
 ) {
 }

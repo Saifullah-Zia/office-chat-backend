@@ -12,7 +12,11 @@ import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "messages")
+@Table(name = "messages", indexes = {
+        @Index(name = "idx_messages_conv_id", columnList = "conversation_id, id"),
+        @Index(name = "idx_messages_conv_created", columnList = "conversation_id, created_at"),
+        @Index(name = "idx_messages_thread_root", columnList = "thread_root_id")
+})
 @Data
 @Builder
 @NoArgsConstructor

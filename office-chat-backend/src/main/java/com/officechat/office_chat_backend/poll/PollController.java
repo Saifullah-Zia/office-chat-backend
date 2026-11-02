@@ -15,6 +15,7 @@ public class PollController {
     private final PollService pollService;
     private final SimpMessagingTemplate messagingTemplate;
     private final com.officechat.office_chat_backend.message.MessageBroadcaster broadcaster;
+    private final com.officechat.office_chat_backend.message.MessageService messageService;
 
     @PostMapping("/api/conversations/{id}/polls")
     public MessageResponse createPoll(
@@ -22,6 +23,7 @@ public class PollController {
             @PathVariable("id") Long conversationId,
             @RequestBody CreatePollRequest request
     ) {
+        messageService.assertCanPost(conversationId, currentUser);
         MessageResponse response = pollService.createPoll(conversationId, currentUser, request);
         broadcaster.broadcastNew(response);
         return response;
@@ -34,6 +36,16 @@ public class PollController {
             @PathVariable("optionId") Long optionId
     ) {
         MessageResponse response = pollService.vote(pollId, optionId, currentUser);
+        messagingTemplate.convertAndSend("/topic/conversation." + response.conversationId(), response);
+        return response;
+    }
+
+    @PostMapping("/api/polls/{pollId}/close")
+    public MessageResponse close(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable("pollId") Long pollId
+    ) {
+        MessageResponse response = pollService.close(pollId, currentUser);
         messagingTemplate.convertAndSend("/topic/conversation." + response.conversationId(), response);
         return response;
     }

@@ -61,6 +61,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/health").permitAll()
                         // Downloads verify a signed URL (or a logged-in member) themselves; uploads need auth.
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/files/*/download").permitAll()
+                        // Profile photos: random file names, loaded by <img> tags (no auth header)
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/users/photo/*").permitAll()
                         .requestMatchers("/ws/**").permitAll()
                         .anyRequest().authenticated()
                 )

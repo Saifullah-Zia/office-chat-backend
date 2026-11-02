@@ -48,6 +48,13 @@ public class User implements UserDetails {
     @Column(name = "work_status")
     private String workStatus;
 
+    @Column(name = "job_title", length = 100)
+    private String jobTitle;
+
+    // Who this person reports to (org chart); null = top of the tree
+    @Column(name = "manager_id")
+    private Long managerId;
+
     @Builder.Default
     private boolean active = true;
 

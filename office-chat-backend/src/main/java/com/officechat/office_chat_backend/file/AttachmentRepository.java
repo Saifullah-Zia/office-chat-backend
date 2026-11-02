@@ -10,6 +10,17 @@ import java.util.List;
 public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
     List<Attachment> findByMessageId(Long messageId);
 
+    List<Attachment> findByMessageIdIn(java.util.Collection<Long> messageIds);
+
+    /** Every file shared in a conversation that the viewer can still see, newest first. */
+    @org.springframework.data.jpa.repository.Query("""
+            select a from Attachment a join fetch a.message m join fetch m.sender
+            where m.conversation.id = :conversationId and m.deletedAt is null and m.createdAt > :since
+            order by m.createdAt desc
+            """)
+    List<Attachment> findSharedInConversation(@org.springframework.data.repository.query.Param("conversationId") Long conversationId,
+                                              @org.springframework.data.repository.query.Param("since") java.time.Instant since);
+
     @Query("select coalesce(sum(a.fileSize), 0) from Attachment a")
     long sumAllFileSizes();
 

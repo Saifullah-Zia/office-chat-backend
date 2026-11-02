@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 
 /** Scheduled ("send later") messages and personal message reminders. */
+@lombok.extern.slf4j.Slf4j
 @Service
 @RequiredArgsConstructor
 public class ScheduleService {
@@ -33,6 +34,7 @@ public class ScheduleService {
     private static final Duration MAX_AHEAD = Duration.ofDays(365);
 
     private final ScheduledMessageRepository scheduledRepository;
+    private final com.officechat.office_chat_backend.file.AttachmentRepository attachmentRepository;
     private final ReminderRepository reminderRepository;
     private final MessageService messageService;
     private final MessageRepository messageRepository;
@@ -55,10 +57,24 @@ public class ScheduleService {
 
     @Transactional
     public Map<String, Object> schedule(User sender, Long conversationId, String content, Instant sendAt) {
+        return schedule(sender, conversationId, content, sendAt, null);
+    }
+
+    /** With an already-uploaded file; it's attached when the message goes out. */
+    @Transactional
+    public Map<String, Object> schedule(User sender, Long conversationId, String content, Instant sendAt, Long attachmentId) {
         conversationService.assertMember(conversationId, sender.getId());
         assertFutureTime(sendAt);
         String text = content == null ? "" : content.trim();
-        if (text.isEmpty()) throw new ApiException(HttpStatus.BAD_REQUEST, "Write a message to schedule");
+        if (attachmentId != null) {
+            var att = attachmentRepository.findById(attachmentId)
+                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Attachment not found"));
+            if (!att.getUploadedBy().getId().equals(sender.getId()) || !att.getConversationId().equals(conversationId)
+                    || att.getMessage() != null) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "This file can't be scheduled");
+            }
+        }
+        if (text.isEmpty() && attachmentId == null) throw new ApiException(HttpStatus.BAD_REQUEST, "Write a message to schedule");
         if (text.length() > 10_000) throw new ApiException(HttpStatus.BAD_REQUEST, "Message is too long");
         if (scheduledRepository.countBySenderIdAndStatus(sender.getId(), ScheduledMessage.Status.PENDING) >= MAX_PENDING_SCHEDULED) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "You have too many scheduled messages");
@@ -68,6 +84,7 @@ public class ScheduleService {
                 .senderId(sender.getId())
                 .conversationId(conversationId)
                 .content(text)
+                .attachmentId(attachmentId)
                 .sendAt(sendAt)
                 .status(ScheduledMessage.Status.PENDING)
                 .build());
@@ -103,7 +120,8 @@ public class ScheduleService {
                 User sender = userRepository.findById(s.getSenderId())
                         .filter(User::isActive)
                         .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN, "Sender account is inactive"));
-                MessageResponse sent = messageService.send(s.getConversationId(), sender, s.getContent(), MessageType.TEXT, null);
+                MessageResponse sent = messageService.send(s.getConversationId(), sender, s.getContent(),
+                        s.getAttachmentId() == null ? MessageType.TEXT : null, s.getAttachmentId());
                 broadcaster.broadcastNew(sent);
                 s.setStatus(ScheduledMessage.Status.SENT);
                 s.setSentMessageId(sent.id());
@@ -114,7 +132,7 @@ public class ScheduleService {
             } catch (Exception e) {
                 s.setStatus(ScheduledMessage.Status.FAILED);
                 s.setFailureReason("Unexpected error");
-                System.err.println("Scheduled message " + s.getId() + " failed: " + e.getMessage());
+                log.warn("Scheduled message {} failed: {}", s.getId(), e.getMessage());
             }
             scheduledRepository.save(s);
         }
@@ -125,6 +143,10 @@ public class ScheduleService {
         v.put("id", s.getId());
         v.put("conversationId", s.getConversationId());
         v.put("content", s.getContent());
+        if (s.getAttachmentId() != null) {
+            attachmentRepository.findById(s.getAttachmentId())
+                    .ifPresent(a -> v.put("attachmentName", a.getFileName()));
+        }
         v.put("sendAt", s.getSendAt());
         v.put("status", s.getStatus().name());
         return v;

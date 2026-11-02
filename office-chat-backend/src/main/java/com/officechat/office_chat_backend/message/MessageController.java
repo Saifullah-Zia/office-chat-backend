@@ -19,6 +19,7 @@ public class MessageController {
     private final MessageService messageService;
     private final SimpMessagingTemplate messagingTemplate;
     private final MessageBroadcaster broadcaster;
+    private final com.officechat.office_chat_backend.conversation.ConversationService conversationService;
 
     @MessageMapping("/chat.send")
     public void sendMessage(@Payload MessageRequest request, Authentication authentication) {
@@ -34,9 +35,13 @@ public class MessageController {
     // Client sends to: /app/chat.typing
     // Server broadcasts to: /topic/conversation.{id}.typing
     @MessageMapping("/chat.typing")
-    public void typing(@Payload TypingRequest request) {
+    public void typing(@Payload TypingRequest request, Authentication authentication) {
+        if (authentication == null) return;
+        User user = (User) authentication.getPrincipal();
+        // Only members may announce typing, and only as themselves.
+        if (!conversationService.isMember(request.conversationId(), user.getId())) return;
         TypingEvent event = new TypingEvent(
-                request.conversationId(), request.userId(), request.userName(), request.typing()
+                request.conversationId(), user.getId(), user.getName(), request.typing(), request.threadRootId()
         );
 
         messagingTemplate.convertAndSend(

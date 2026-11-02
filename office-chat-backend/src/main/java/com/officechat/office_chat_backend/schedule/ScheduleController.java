@@ -36,11 +36,12 @@ public class ScheduleController {
         }
     }
 
-    /** Body: { conversationId, content, sendAt (ISO instant) } */
+    /** Body: { conversationId, content, sendAt (ISO instant), attachmentId? } */
     @PostMapping("/api/scheduled")
     public Map<String, Object> schedule(@AuthenticationPrincipal User currentUser, @RequestBody Map<String, Object> body) {
         return scheduleService.schedule(currentUser, asLong(body.get("conversationId")),
-                (String) body.get("content"), parseInstant(body.get("sendAt")));
+                (String) body.get("content"), parseInstant(body.get("sendAt")),
+                body.get("attachmentId") == null ? null : asLong(body.get("attachmentId")));
     }
 
     @GetMapping("/api/scheduled")

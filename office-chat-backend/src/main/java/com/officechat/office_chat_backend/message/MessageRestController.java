@@ -17,6 +17,28 @@ public class MessageRestController {
 
     private final MessageService messageService;
     private final MessageBroadcaster broadcaster;
+    private final MessageMetaService metaService;
+
+    /** All versions of an edited message, oldest first (last = current). */
+    @GetMapping("/{messageId}/history")
+    public List<Map<String, Object>> history(@AuthenticationPrincipal User currentUser, @PathVariable Long messageId) {
+        return metaService.editHistory(messageId, currentUser.getId());
+    }
+
+    @PostMapping("/{messageId}/ack")
+    public Map<String, Object> acknowledge(@AuthenticationPrincipal User currentUser, @PathVariable Long messageId) {
+        return metaService.acknowledge(messageId, currentUser);
+    }
+
+    @GetMapping("/{messageId}/acks")
+    public Map<String, Object> ackDetails(@AuthenticationPrincipal User currentUser, @PathVariable Long messageId) {
+        return metaService.ackDetails(messageId, currentUser.getId());
+    }
+
+    @GetMapping("/conversation/{conversationId}/acks")
+    public Map<String, Object> conversationAcks(@AuthenticationPrincipal User currentUser, @PathVariable Long conversationId) {
+        return metaService.conversationAcks(conversationId, currentUser.getId());
+    }
 
     @GetMapping("/starred")
     public List<MessageResponse> getStarred(@AuthenticationPrincipal User currentUser) {

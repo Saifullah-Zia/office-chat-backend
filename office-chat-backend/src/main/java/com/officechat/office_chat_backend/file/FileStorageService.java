@@ -16,6 +16,7 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.UUID;
 
+@lombok.extern.slf4j.Slf4j
 @Service
 public class FileStorageService {
 
@@ -103,7 +104,7 @@ public class FileStorageService {
             Path target = base.resolve(storedFileName).normalize();
             if (target.startsWith(base)) Files.deleteIfExists(target);
         } catch (IOException e) {
-            System.err.println("Could not delete stored file " + storedFileName + ": " + e.getMessage());
+            log.warn("Could not delete stored file {}: {}", storedFileName, e.getMessage());
         }
     }
 

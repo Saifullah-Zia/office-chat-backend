@@ -133,6 +133,12 @@
 			<artifactId>authentication</artifactId>
 			<version>2.1.2</version>
 		</dependency>
+		<!-- Claude API: message translation and chat summaries -->
+		<dependency>
+			<groupId>com.anthropic</groupId>
+			<artifactId>anthropic-java</artifactId>
+			<version>3.2.0</version>
+		</dependency>
 	</dependencies>
 
 	<build>

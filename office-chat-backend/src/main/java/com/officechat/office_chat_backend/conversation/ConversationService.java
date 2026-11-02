@@ -44,6 +44,9 @@ public class ConversationService {
         if (currentUserId.equals(otherUserId)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Cannot start a conversation with yourself");
         }
+        if (isProvider(currentUserId) && isProvider(otherUserId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Providers can only message company staff");
+        }
 
         List<Long> existingIds = memberRepository.findDirectConversationIdsBetween(currentUserId, otherUserId);
         if (!existingIds.isEmpty()) {
@@ -75,6 +78,7 @@ public class ConversationService {
     @Transactional
     public ConversationResponse createGroup(Long creatorId, String name, List<Long> memberIds,
                                             String description, boolean isPublic) {
+        assertNotProvider(creatorId, "Providers can't create groups");
         Conversation conversation = conversationRepository.save(
                 Conversation.builder().type(ConversationType.GROUP).name(name).createdBy(String.valueOf(creatorId))
                         .description(description != null && !description.isBlank() ? description.trim() : null)
@@ -91,6 +95,19 @@ public class ConversationService {
         auditService.log(creatorId, "GROUP_CREATED", "CONVERSATION", conversation.getId(),
                 "Created group " + groupLabel(conversation));
         return toResponse(conversation, creatorId);
+    }
+
+    public boolean isMember(Long conversationId, Long userId) {
+        return memberRepository.existsByConversationIdAndUserId(conversationId, userId);
+    }
+
+    /** Providers (external doctors) talk only with company staff. */
+    public boolean isProvider(Long userId) {
+        return userRepository.findById(userId).map(u -> u.getRole() == Role.PROVIDER).orElse(false);
+    }
+
+    private void assertNotProvider(Long userId, String message) {
+        if (isProvider(userId)) throw new ApiException(HttpStatus.FORBIDDEN, message);
     }
 
     public void assertMember(Long conversationId, Long userId) {
@@ -121,12 +138,14 @@ public class ConversationService {
                 || blockRepository.existsByBlockerIdAndBlockedId(userB, userA);
     }
 
+    @Transactional(readOnly = true)
     public List<ConversationResponse> getUserConversations(Long userId) {
-        return memberRepository.findByUserId(userId).stream()
+        List<Conversation> conversations = memberRepository.findWithConversationByUserId(userId).stream()
                 .filter(m -> !m.isHiddenForMember())
                 .map(ConversationMember::getConversation)
-                .map(conversation -> toResponse(conversation, userId))
                 .toList();
+        ListContext ctx = loadContext(conversations.stream().map(Conversation::getId).toList(), userId);
+        return conversations.stream().map(c -> toResponse(c, userId, ctx)).toList();
     }
 
     @Transactional
@@ -375,6 +394,7 @@ public class ConversationService {
 
     @Transactional(readOnly = true)
     public List<java.util.Map<String, Object>> listPublicChannels(Long userId, String query) {
+        if (isProvider(userId)) return List.of(); // providers don't browse the company's channels
         String q = query == null ? "" : query.trim().toLowerCase();
         return conversationRepository.findByTypeAndPublicChannelTrueOrderByNameAsc(ConversationType.GROUP).stream()
                 .filter(c -> q.isEmpty()
@@ -394,6 +414,7 @@ public class ConversationService {
 
     @Transactional
     public ConversationResponse joinPublicChannel(Long conversationId, Long userId) {
+        assertNotProvider(userId, "Providers can't join channels themselves; ask an admin to add you");
         Conversation c = conversationRepository.findById(conversationId)
                 .filter(Conversation::isPublicChannel)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Channel not found"));
@@ -440,6 +461,7 @@ public class ConversationService {
 
     @Transactional(readOnly = true)
     public java.util.Map<String, Object> previewInvite(String code, Long userId) {
+        assertNotProvider(userId, "Invite links aren't available to providers; ask an admin to add you");
         Conversation c = findByInvite(code);
         java.util.Map<String, Object> v = new java.util.LinkedHashMap<>();
         v.put("conversationId", c.getId());
@@ -452,6 +474,7 @@ public class ConversationService {
 
     @Transactional
     public ConversationResponse joinByInvite(String code, Long userId) {
+        assertNotProvider(userId, "Invite links aren't available to providers; ask an admin to add you");
         Conversation c = findByInvite(code);
         if (!memberRepository.existsByConversationIdAndUserId(c.getId(), userId)) {
             addMember(c, userId);
@@ -554,10 +577,50 @@ public class ConversationService {
     }
 
     private ConversationResponse toResponse(Conversation conversation, Long currentUserId) {
-        List<ConversationMember> memberRows = memberRepository.findByConversationId(conversation.getId());
+        return toResponse(conversation, currentUserId, loadContext(List.of(conversation.getId()), currentUserId));
+    }
+
+    /** What toResponse needs for a set of chats, loaded in a handful of queries instead of several per chat. */
+    private record ListContext(
+            java.util.Map<Long, List<ConversationMember>> membersByConv,
+            java.util.Map<Long, Message> lastMessageByConv,
+            java.util.Map<Long, List<com.officechat.office_chat_backend.message.MessageReaction>> reactionsByMsg,
+            java.util.Map<Long, Long> unreadByConv,
+            java.util.Set<Long> blockedByMe,
+            java.util.Set<Long> blockedMe,
+            boolean globalAdmin
+    ) {}
+
+    private ListContext loadContext(List<Long> convIds, Long userId) {
+        if (convIds.isEmpty()) {
+            return new ListContext(java.util.Map.of(), java.util.Map.of(), java.util.Map.of(), java.util.Map.of(),
+                    java.util.Set.of(), java.util.Set.of(), false);
+        }
+        var membersByConv = memberRepository.findWithUsersByConversationIdIn(convIds).stream()
+                .collect(java.util.stream.Collectors.groupingBy(m -> m.getConversation().getId()));
+        var lastByConv = messageRepository.findLatestIn(convIds).stream()
+                .collect(java.util.stream.Collectors.toMap(m -> m.getConversation().getId(), m -> m, (a, b) -> a));
+        List<Long> lastIds = lastByConv.values().stream().map(Message::getId).toList();
+        var reactionsByMsg = lastIds.isEmpty()
+                ? java.util.Map.<Long, List<com.officechat.office_chat_backend.message.MessageReaction>>of()
+                : reactionRepository.findByMessageIdIn(lastIds).stream()
+                        .collect(java.util.stream.Collectors.groupingBy(r -> r.getMessage().getId()));
+        java.util.Map<Long, Long> unread = new java.util.HashMap<>();
+        for (Object[] row : messageRepository.unreadCounts(userId, convIds)) {
+            unread.put((Long) row[0], ((Number) row[1]).longValue());
+        }
+        var blockedByMe = blockRepository.findByBlockerId(userId).stream()
+                .map(UserBlock::getBlockedId).collect(java.util.stream.Collectors.toSet());
+        var blockedMe = blockRepository.findByBlockedId(userId).stream()
+                .map(UserBlock::getBlockerId).collect(java.util.stream.Collectors.toSet());
+        return new ListContext(membersByConv, lastByConv, reactionsByMsg, unread, blockedByMe, blockedMe, isGlobalAdmin(userId));
+    }
+
+    private ConversationResponse toResponse(Conversation conversation, Long currentUserId, ListContext ctx) {
+        List<ConversationMember> memberRows = ctx.membersByConv().getOrDefault(conversation.getId(), List.of());
         List<UserResponse> members = memberRows.stream()
                 .map(ConversationMember::getUser)
-                .map(UserResponse::from)
+                .map(u -> UserResponse.from(u).visibleTo(ctx.globalAdmin(), currentUserId))
                 .toList();
         List<Long> adminIds = memberRows.stream()
                 .filter(ConversationMember::isAdmin)
@@ -570,7 +633,7 @@ public class ConversationService {
                 .orElse(null);
         Instant clearedAt = currentMember != null ? currentMember.getClearedAt() : null;
 
-        var lastMessage = messageRepository.findTopByConversationIdOrderByCreatedAtDesc(conversation.getId())
+        var lastMessage = java.util.Optional.ofNullable(ctx.lastMessageByConv().get(conversation.getId()))
                 .filter(m -> clearedAt == null || m.getCreatedAt().isAfter(clearedAt));
         String preview = null;
         Instant lastAt = null;
@@ -581,7 +644,7 @@ public class ConversationService {
             if (m.getDeletedAt() != null) {
                 preview = "🚫 This message was deleted";
             } else {
-                List<com.officechat.office_chat_backend.message.MessageReaction> reactions = reactionRepository.findByMessageId(m.getId());
+                List<com.officechat.office_chat_backend.message.MessageReaction> reactions = ctx.reactionsByMsg().getOrDefault(m.getId(), List.of());
                 if (!reactions.isEmpty()) {
                     var latest = reactions.get(reactions.size() - 1);
                     String name = latest.getUser().getId().equals(currentUserId) ? "You" : latest.getUser().getName();
@@ -603,8 +666,7 @@ public class ConversationService {
         long unreadCount = 0;
         Instant mutedUntil = null;
         if (currentMember != null) {
-            Instant since = currentMember.getLastReadAt() != null ? currentMember.getLastReadAt() : currentMember.getJoinedAt();
-            unreadCount = messageRepository.countByConversationIdAndCreatedAtAfter(conversation.getId(), since);
+            unreadCount = ctx.unreadByConv().getOrDefault(conversation.getId(), 0L);
             mutedUntil = currentMember.getMutedUntil();
         }
 
@@ -617,8 +679,8 @@ public class ConversationService {
                     .findFirst()
                     .orElse(null);
             if (otherId != null) {
-                blockedByMe = blockRepository.existsByBlockerIdAndBlockedId(currentUserId, otherId);
-                blockedMe = blockRepository.existsByBlockerIdAndBlockedId(otherId, currentUserId);
+                blockedByMe = ctx.blockedByMe().contains(otherId);
+                blockedMe = ctx.blockedMe().contains(otherId);
             }
         }
 
@@ -641,7 +703,7 @@ public class ConversationService {
                 conversation.getDescription(),
                 conversation.isPublicChannel(),
                 conversation.getRetentionDays(),
-                currentMember != null && (currentMember.isAdmin() || isGlobalAdmin(currentUserId))
+                currentMember != null && (currentMember.isAdmin() || ctx.globalAdmin())
                         ? conversation.getInviteCode() : null
         );
     }

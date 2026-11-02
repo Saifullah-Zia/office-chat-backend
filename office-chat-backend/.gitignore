@@ -31,3 +31,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Web Push keys (generated on first start)
+vapid-keys.properties

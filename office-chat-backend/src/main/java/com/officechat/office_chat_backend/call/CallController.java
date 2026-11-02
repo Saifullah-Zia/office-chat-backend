@@ -17,6 +17,25 @@ public class CallController {
 
     private final CallService callService;
 
+    private final GroupCallPresenceService presenceService;
+
+    /** Group calls: 'joined' and, every minute after, 'still here'. */
+    @PostMapping("/{id}/presence")
+    public java.util.Map<String, Object> checkIn(@AuthenticationPrincipal User currentUser, @PathVariable Long id) {
+        return presenceService.checkIn(id, currentUser);
+    }
+
+    @DeleteMapping("/{id}/presence")
+    public void leave(@AuthenticationPrincipal User currentUser, @PathVariable Long id) {
+        presenceService.leave(id, currentUser);
+    }
+
+    /** The group call running in a chat right now (for the Join call banner). */
+    @GetMapping("/active")
+    public java.util.Map<String, Object> active(@AuthenticationPrincipal User currentUser, @RequestParam Long conversationId) {
+        return presenceService.active(conversationId, currentUser.getId());
+    }
+
     @PostMapping
     public CallResponse initiate(@AuthenticationPrincipal User currentUser, @Valid @RequestBody InitiateCallRequest request) {
         return CallResponse.from(callService.initiate(request.conversationId(), currentUser, request.type()));

@@ -28,6 +28,10 @@ public class ScheduledMessage {
     @Column(columnDefinition = "TEXT", nullable = false)
     private String content;
 
+    // Uploaded file to attach when sending (optional)
+    @Column(name = "attachment_id")
+    private Long attachmentId;
+
     @Column(name = "send_at", nullable = false)
     private Instant sendAt;
 

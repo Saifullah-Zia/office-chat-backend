@@ -41,7 +41,9 @@ public class FileController {
             @AuthenticationPrincipal User currentUser,
             @PathVariable Long id,
             @RequestParam(required = false) Long exp,
-            @RequestParam(required = false) String sig
+            @RequestParam(required = false) String sig,
+            // dl=1 forces a save dialog; the HTML download attribute is ignored cross-origin.
+            @RequestParam(required = false, defaultValue = "false") boolean dl
     ) {
         Attachment attachment = fileService.getById(id);
         Resource resource = fileService.download(id, currentUser, exp, sig);
@@ -55,8 +57,8 @@ public class FileController {
             mediaType = MediaType.APPLICATION_OCTET_STREAM;
         }
         String baseType = mediaType.getType() + "/" + mediaType.getSubtype();
-        boolean inline = INLINE_TYPES.contains(baseType)
-                || baseType.startsWith("audio/") || baseType.startsWith("video/");
+        boolean inline = !dl && (INLINE_TYPES.contains(baseType)
+                || baseType.startsWith("audio/") || baseType.startsWith("video/"));
 
         org.springframework.http.ContentDisposition disposition =
                 (inline ? org.springframework.http.ContentDisposition.inline()

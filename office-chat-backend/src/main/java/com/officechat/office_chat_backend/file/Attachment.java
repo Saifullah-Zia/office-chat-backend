@@ -8,7 +8,7 @@ import lombok.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "attachments")
+@Table(name = "attachments", indexes = @Index(name = "idx_attachments_message", columnList = "message_id"))
 @Data
 @Builder
 @NoArgsConstructor

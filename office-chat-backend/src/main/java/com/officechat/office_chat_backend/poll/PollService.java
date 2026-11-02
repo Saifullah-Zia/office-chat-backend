@@ -43,6 +43,10 @@ public class PollService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Poll must have at least 2 options");
         }
 
+        if (request.closesAt() != null && !request.closesAt().isAfter(java.time.Instant.now())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "The poll deadline must be in the future");
+        }
+
         Conversation conversation = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Conversation not found"));
 
@@ -58,6 +62,7 @@ public class PollService {
                 .message(message)
                 .question(request.question().trim())
                 .multipleAnswers(request.multipleAnswers())
+                .closesAt(request.closesAt())
                 .build();
         poll = pollRepository.save(poll);
 
@@ -81,8 +86,15 @@ public class PollService {
 
         conversationService.assertMember(poll.getMessage().getConversation().getId(), user.getId());
 
+        if (poll.isClosed()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "This poll is closed");
+        }
+
         PollOption option = optionRepository.findById(optionId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Poll option not found"));
+        if (!option.getPoll().getId().equals(pollId)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "That option is not part of this poll");
+        }
 
         Optional<PollVote> existing = voteRepository.findByPollIdAndOptionIdAndUserId(pollId, optionId, user.getId());
 
@@ -103,6 +115,26 @@ public class PollService {
 
         PollResponse pollResp = getPollResponse(poll, user.getId());
         Message message = poll.getMessage();
+        return MessageResponse.from(message, Collections.emptyList(), Collections.emptyMap(), Collections.emptyList(), pollResp, false, true);
+    }
+
+    /** Stop voting now. Allowed for the poll's creator and chat admins. */
+    @Transactional
+    public MessageResponse close(Long pollId, User user) {
+        Poll poll = pollRepository.findById(pollId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Poll not found"));
+        Message message = poll.getMessage();
+        Long conversationId = message.getConversation().getId();
+        conversationService.assertMember(conversationId, user.getId());
+        boolean isCreator = message.getSender().getId().equals(user.getId());
+        if (!isCreator && !conversationService.isConversationAdmin(conversationId, user.getId())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Only the poll creator or an admin can close it");
+        }
+        if (poll.getClosedAt() == null) {
+            poll.setClosedAt(java.time.Instant.now());
+            pollRepository.save(poll);
+        }
+        PollResponse pollResp = getPollResponse(poll, user.getId());
         return MessageResponse.from(message, Collections.emptyList(), Collections.emptyMap(), Collections.emptyList(), pollResp, false, true);
     }
 
@@ -130,7 +162,9 @@ public class PollService {
                 poll.getQuestion(),
                 poll.isMultipleAnswers(),
                 totalVotes,
-                optionResponses
+                optionResponses,
+                poll.getClosesAt(),
+                poll.isClosed()
         );
     }
 }

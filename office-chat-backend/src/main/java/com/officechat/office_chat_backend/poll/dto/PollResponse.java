@@ -8,6 +8,8 @@ public record PollResponse(
         String question,
         boolean multipleAnswers,
         int totalVotes,
-        List<PollOptionResponse> options
+        List<PollOptionResponse> options,
+        java.time.Instant closesAt,
+        boolean closed
 ) {
 }

@@ -13,6 +13,12 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
 
     List<ConversationMember> findByConversationId(Long conversationId);
 
+    @Query("select cm from ConversationMember cm join fetch cm.conversation where cm.user.id = :userId")
+    List<ConversationMember> findWithConversationByUserId(@Param("userId") Long userId);
+
+    @Query("select cm from ConversationMember cm join fetch cm.user where cm.conversation.id in :ids")
+    List<ConversationMember> findWithUsersByConversationIdIn(@Param("ids") java.util.Collection<Long> ids);
+
     Optional<ConversationMember> findByConversationIdAndUserId(Long conversationId, Long userId);
 
     boolean existsByConversationIdAndUserId(Long conversationId, Long userId);

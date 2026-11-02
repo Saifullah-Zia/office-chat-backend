@@ -44,13 +44,11 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String authHeader = request.getHeader("Authorization");
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            System.out.println("JWT FILTER [NO BEARER]: URI=" + request.getRequestURI());
             filterChain.doFilter(request, response);
             return;
         }
         String token = authHeader.substring(7).trim();
         if (token.isEmpty() || "null".equalsIgnoreCase(token) || "undefined".equalsIgnoreCase(token)) {
-            System.out.println("JWT FILTER [EMPTY TOKEN]: URI=" + request.getRequestURI());
             filterChain.doFilter(request, response);
             return;
         }
@@ -73,7 +71,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     request.setAttribute(JwtService.SESSION_CLAIM, sid);
                     // Block deactivated users even if their JWT is still valid
                     if (!user.isActive()) {
-                        System.out.println("JWT FILTER [DEACTIVATED]: URI=" + request.getRequestURI() + " user=" + email);
+                        log.debug("Rejected deactivated user {} on {}", email, request.getRequestURI());
                         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                         response.setContentType("application/json");
                         response.getWriter().write("{\"error\":\"Your account has been deactivated. Please contact your administrator.\"}");
@@ -83,13 +81,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                             new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
                     authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                     SecurityContextHolder.getContext().setAuthentication(authToken);
-                    System.out.println("JWT FILTER [SUCCESS]: URI=" + request.getRequestURI() + " user=" + email);
-                } else {
-                    System.out.println("JWT FILTER [INVALID TOKEN]: URI=" + request.getRequestURI() + " user=" + email);
                 }
             }
         } catch (Exception e) {
-            System.out.println("JWT FILTER [EXCEPTION]: URI=" + request.getRequestURI() + " err=" + e.getMessage());
+            log.debug("Rejected JWT on {}: {}", request.getRequestURI(), e.getMessage());
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json");
             response.getWriter().write("{\"error\":\"Invalid or expired JWT token. Please log in again.\"}");

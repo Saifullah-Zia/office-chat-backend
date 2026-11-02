@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Records who did what for admin review. Logging failures never break the action itself. */
+@lombok.extern.slf4j.Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuditService {
@@ -30,7 +31,7 @@ public class AuditService {
                     .details(details)
                     .build());
         } catch (Exception e) {
-            System.err.println("Audit log write failed: " + e.getMessage());
+            log.warn("Audit log write failed: {}", e.getMessage());
         }
     }
 

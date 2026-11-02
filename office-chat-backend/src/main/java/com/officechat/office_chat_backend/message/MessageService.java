@@ -44,11 +44,27 @@ public class MessageService {
     private final StarredMessageRepository starredMessageRepository;
     private final com.officechat.office_chat_backend.common.RateLimiter rateLimiter;
     private final com.officechat.office_chat_backend.audit.AuditService auditService;
+    private final MessageEditRepository editRepository;
+    private final com.officechat.office_chat_backend.dlp.DlpService dlpService;
 
     private static final int MAX_MESSAGE_LENGTH = 10_000;
 
     /** Membership, admin-only and block checks shared by send and forward. */
-    private Conversation assertCanPost(Long conversationId, User sender) {
+    // @here / @channel / @all notify the whole group, so only group admins may use them.
+    private static final java.util.regex.Pattern GROUP_MENTION =
+            java.util.regex.Pattern.compile("(^|[^\\w@])@(here|channel|all)\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    private void assertCanUseGroupMention(Conversation conversation, User sender, String content) {
+        if (content == null
+                || conversation.getType() != com.officechat.office_chat_backend.conversation.ConversationType.GROUP
+                || !GROUP_MENTION.matcher(content).find()) return;
+        if (!conversationService.isConversationAdmin(conversation.getId(), sender.getId())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Only group admins can use @here, @channel or @all");
+        }
+    }
+
+    /** Members only; respects "only admins can post" and blocks in direct chats. */
+    public Conversation assertCanPost(Long conversationId, User sender) {
         conversationService.assertMember(conversationId, sender.getId());
 
         Conversation conversation = conversationRepository.findById(conversationId)
@@ -105,6 +121,8 @@ public class MessageService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Messages can be at most " + MAX_MESSAGE_LENGTH + " characters");
         }
         Conversation conversation = assertCanPost(conversationId, sender);
+        assertCanUseGroupMention(conversation, sender, content);
+        dlpService.enforceBlock(content, sender.getId(), conversationId);
 
         conversationService.unhideForAll(conversationId);
 
@@ -363,6 +381,11 @@ public class MessageService {
                         )
                 ));
 
+        Map<Long, List<AttachmentResponse>> attachmentsByMsg = msgIds.isEmpty() ? Collections.emptyMap()
+                : attachmentRepository.findByMessageIdIn(msgIds).stream()
+                        .collect(Collectors.groupingBy(a -> a.getMessage().getId(),
+                                Collectors.mapping(AttachmentResponse::from, Collectors.toList())));
+
         List<ConversationMember> members = conversationMemberRepository.findByConversationId(conversationId);
         List<ConversationMember> otherMembers = members.stream()
                 .filter(m -> !m.getUser().getId().equals(requestingUserId))
@@ -370,9 +393,7 @@ public class MessageService {
 
         return messages.stream()
                 .map(m -> {
-                    List<AttachmentResponse> atts = attachmentRepository.findByMessageId(m.getId()).stream()
-                            .map(AttachmentResponse::from)
-                            .toList();
+                    List<AttachmentResponse> atts = attachmentsByMsg.getOrDefault(m.getId(), List.of());
 
                     boolean isRead = otherMembers.stream().anyMatch(om ->
                             om.getLastReadAt() != null && !om.getLastReadAt().isBefore(m.getCreatedAt())
@@ -438,8 +459,14 @@ public class MessageService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Messages can only be edited within 15 minutes");
         }
 
-        message.setContent(newContent != null ? newContent : "");
-        message.setEditedAt(Instant.now());
+        Instant now = Instant.now();
+        String updated = newContent != null ? newContent : "";
+        dlpService.enforceBlock(updated, user.getId(), message.getConversation().getId());
+        if (updated.equals(message.getContent())) return getSingleMessageResponse(message, user.getId());
+        editRepository.save(MessageEdit.builder()
+                .messageId(message.getId()).previousContent(message.getContent()).editedAt(now).build());
+        message.setContent(updated);
+        message.setEditedAt(now);
         messageRepository.save(message);
 
         return getSingleMessageResponse(message, user.getId());

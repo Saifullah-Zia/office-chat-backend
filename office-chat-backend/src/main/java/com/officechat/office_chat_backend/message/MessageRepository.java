@@ -25,6 +25,11 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     /** Replies in a thread, oldest first. */
     List<Message> findByThreadRootIdAndCreatedAtAfterOrderByCreatedAtAsc(Long threadRootId, Instant after);
 
+    // Export paging (keyset by id, oldest first)
+    List<Message> findByConversationIdAndIdGreaterThanOrderByIdAsc(Long conversationId, Long afterId, Pageable pageable);
+
+    List<Message> findBySenderIdAndIdGreaterThanOrderByIdAsc(Long senderId, Long afterId, Pageable pageable);
+
     /** [rootId, replyCount, lastReplyAt] for the given thread roots. */
     @Query("""
             select m.threadRootId, count(m), max(m.createdAt) from Message m
@@ -45,6 +50,24 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     Optional<Message> findTopByConversationIdOrderByCreatedAtDesc(Long conversationId);
 
     long countByConversationIdAndCreatedAtAfter(Long conversationId, Instant after);
+
+    /** The newest message of each given conversation (ids are assigned in send order). */
+    @Query("""
+            select m from Message m
+            where m.conversation.id in :convIds
+              and m.id = (select max(m2.id) from Message m2 where m2.conversation.id = m.conversation.id)
+            """)
+    List<Message> findLatestIn(@Param("convIds") Collection<Long> convIds);
+
+    /** [conversationId, unreadCount] for this user, counting messages after their last read (or join) time. */
+    @Query("""
+            select cm.conversation.id, count(m) from ConversationMember cm, Message m
+            where cm.user.id = :userId and cm.conversation.id in :convIds
+              and m.conversation = cm.conversation
+              and m.createdAt > coalesce(cm.lastReadAt, cm.joinedAt)
+            group by cm.conversation.id
+            """)
+    List<Object[]> unreadCounts(@Param("userId") Long userId, @Param("convIds") Collection<Long> convIds);
 
     /**
      * Server-side message search across the given conversations.
@@ -78,7 +101,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                          @Param("has") String has,
                          Pageable pageable);
 
-    /** Messages that @mention the user by name, @all/@here in groups, or reply to them. */
+    /** Messages that @mention the user by name, @all/@here/@channel in groups, or reply to them. */
     @Query("""
             select m from Message m
             where m.conversation.id in :convIds
@@ -87,7 +110,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               and (lower(m.content) like :mentionLike escape '\\'
                    or lower(m.content) like :replyLike escape '\\'
                    or (m.conversation.type = com.officechat.office_chat_backend.conversation.ConversationType.GROUP
-                       and (lower(m.content) like '%@all%' or lower(m.content) like '%@here%')))
+                       and (lower(m.content) like '%@all%' or lower(m.content) like '%@here%'
+                            or lower(m.content) like '%@channel%')))
             order by m.createdAt desc
             """)
     List<Message> findMentions(@Param("convIds") Collection<Long> convIds,

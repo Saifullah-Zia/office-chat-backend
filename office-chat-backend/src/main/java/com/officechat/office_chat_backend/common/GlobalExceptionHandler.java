@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
+@lombok.extern.slf4j.Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -53,8 +54,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGeneralException(Exception ex) {
-        ex.printStackTrace();
-        return build(HttpStatus.INTERNAL_SERVER_ERROR, "Server error: " + ex.getMessage());
+        log.error("Unhandled server error", ex);
+        // Details stay in the server log; clients get a generic message.
+        return build(HttpStatus.INTERNAL_SERVER_ERROR, "Something went wrong on the server. Please try again.");
     }
 
     private ResponseEntity<Map<String, Object>> build(HttpStatus status, String message) {

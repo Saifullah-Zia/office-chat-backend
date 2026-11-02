@@ -22,6 +22,7 @@ public class ConversationController {
 
     private final ConversationService conversationService;
     private final MessageService messageService;
+    private final com.officechat.office_chat_backend.dlp.DlpService dlpService;
     private final SimpMessagingTemplate messagingTemplate;
     private final com.officechat.office_chat_backend.message.MessageBroadcaster broadcaster;
 
@@ -45,6 +46,7 @@ public class ConversationController {
             @PathVariable("rootId") Long rootId,
             @RequestBody com.officechat.office_chat_backend.message.dto.MessageRequest request
     ) {
+        dlpService.warnUnlessConfirmed(request.content(), request.dlpConfirmed(), currentUser.getId(), conversationId);
         MessageResponse reply = messageService.send(conversationId, currentUser, request.content(),
                 request.type(), request.attachmentId(), rootId);
         broadcaster.broadcastNew(reply);
@@ -145,13 +147,7 @@ public class ConversationController {
             @RequestParam(defaultValue = "30") int size,
             @RequestParam(required = false) Long before
     ) {
-        try {
-            return messageService.getHistory(conversationId, currentUser.getId(), page, Math.min(size, 100), before);
-        } catch (Exception e) {
-            System.err.println("GET MESSAGES ERROR: " + e.getClass().getName() + " - " + e.getMessage());
-            e.printStackTrace();
-            throw e;
-        }
+        return messageService.getHistory(conversationId, currentUser.getId(), page, Math.min(size, 100), before);
     }
 
     @PostMapping("/{id}/messages")
@@ -160,6 +156,7 @@ public class ConversationController {
             @PathVariable("id") Long conversationId,
             @RequestBody com.officechat.office_chat_backend.message.dto.MessageRequest request
     ) {
+        dlpService.warnUnlessConfirmed(request.content(), request.dlpConfirmed(), currentUser.getId(), conversationId);
         MessageResponse response = messageService.send(
                 conversationId, currentUser, request.content(), request.type(), request.attachmentId()
         );

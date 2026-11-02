@@ -5,6 +5,7 @@ import com.officechat.office_chat_backend.file.AttachmentRepository;
 import com.officechat.office_chat_backend.file.FileStorageService;
 import com.officechat.office_chat_backend.message.MessageRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -18,6 +19,7 @@ import java.util.List;
  * Disappearing messages. Members already can't see expired messages (history is filtered by
  * {@link ConversationService#getVisibleSince}); this job permanently wipes their text and files.
  */
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class RetentionJob {
@@ -51,7 +53,7 @@ public class RetentionJob {
                 if (attachmentRepository.countByStoredFileName(stored) == 0) storageService.delete(stored);
             }
             int wiped = messageRepository.scrubOlderThan(c.getId(), cutoff, now);
-            if (wiped > 0) System.out.println("Retention: wiped " + wiped + " message(s) in conversation " + c.getId());
+            if (wiped > 0) log.info("Retention: wiped {} message(s) in conversation {}", wiped, c.getId());
         }
     }
 }

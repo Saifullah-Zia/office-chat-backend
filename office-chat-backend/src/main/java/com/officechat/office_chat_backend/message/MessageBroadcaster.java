@@ -17,11 +17,13 @@ public class MessageBroadcaster {
 
     private final SimpMessagingTemplate messagingTemplate;
     private final ConversationService conversationService;
+    private final com.officechat.office_chat_backend.push.PushService pushService;
 
     public void broadcastNew(MessageResponse message) {
         messagingTemplate.convertAndSend("/topic/conversation." + message.conversationId(), message);
         // Principal name is the user's email (see CallSignalController).
         conversationService.getMemberEmails(message.conversationId())
                 .forEach(email -> messagingTemplate.convertAndSendToUser(email, "/queue/messages", message));
+        pushService.notifyNewMessage(message);
     }
 }

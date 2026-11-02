@@ -31,6 +31,18 @@ public class Poll {
     @Column(name = "multiple_answers", nullable = false)
     private boolean multipleAnswers;
 
+    // Voting stops after this (null = open until closed by hand)
+    @Column(name = "closes_at")
+    private Instant closesAt;
+
+    // Set when the creator or an admin closes the poll early
+    @Column(name = "closed_at")
+    private Instant closedAt;
+
+    public boolean isClosed() {
+        return closedAt != null || (closesAt != null && Instant.now().isAfter(closesAt));
+    }
+
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 
