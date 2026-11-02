@@ -79,7 +79,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     }
                     String path = request.getRequestURI();
                     if (user.isPasswordChangeRequired()
-                            && !path.equals("/api/account/password") && !path.equals("/api/account/logout")) {
+                            && !path.equals("/api/account/password") && !path.equals("/api/account/logout")
+                            && !path.startsWith("/api/auth/")) {
                         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                         response.setContentType("application/json");
                         response.getWriter().write("{\"error\":\"Please choose a new password first.\",\"code\":\"PASSWORD_CHANGE_REQUIRED\"}");

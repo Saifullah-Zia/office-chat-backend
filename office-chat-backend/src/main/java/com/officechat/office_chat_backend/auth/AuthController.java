@@ -29,12 +29,31 @@ public class AuthController {
     private final RateLimiter rateLimiter;
     private final SessionService sessionService;
     private final TwoFactorService twoFactorService;
+    private final PasswordService passwordService;
 
     @PostMapping("/register")
     public AuthResponse register(@Valid @RequestBody RegisterRequest request, HttpServletRequest http) {
         User user = userService.register(request);
         String token = jwtService.generateToken(user, sessionService.create(user, http).getId());
         return AuthResponse.ok(token, user);
+    }
+
+    /** Body: { email }. Always the same answer, whether or not the account exists. */
+    @PostMapping("/forgot-password")
+    public java.util.Map<String, String> forgotPassword(@RequestBody java.util.Map<String, String> body, HttpServletRequest http) {
+        String email = body.getOrDefault("email", "").trim().toLowerCase();
+        // Don't let anyone flood someone's inbox or hammer the endpoint.
+        if (rateLimiter.tryAcquire("pwreset-ip:" + http.getRemoteAddr(), 10, Duration.ofHours(1))
+                && rateLimiter.tryAcquire("pwreset-email:" + email, 3, Duration.ofHours(1))) {
+            passwordService.requestReset(email);
+        }
+        return java.util.Map.of("message", "If that email has an account, we've sent a link to reset the password.");
+    }
+
+    /** Body: { token, newPassword } from the emailed link. */
+    @PostMapping("/reset-password")
+    public void resetPassword(@RequestBody java.util.Map<String, String> body) {
+        passwordService.completeReset(body.get("token"), body.get("newPassword"));
     }
 
     @PostMapping("/login")
