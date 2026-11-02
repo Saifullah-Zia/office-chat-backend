@@ -34,3 +34,6 @@ build/
 
 # Web Push keys (generated on first start)
 vapid-keys.properties
+
+# User uploads (chat files, photos): never commit
+uploads/

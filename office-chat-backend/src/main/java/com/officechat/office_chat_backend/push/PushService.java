@@ -74,24 +74,43 @@ public class PushService {
                     .filter(id -> !presenceService.isOnline(id)) // online users get the in-app notification
                     .toList();
             if (recipients.isEmpty()) return;
-            List<PushSubscription> subs = repository.findByUserIdIn(recipients);
-            if (subs.isEmpty()) return;
-
-            Conversation conv = members.get(0).getConversation();
-            byte[] payload = objectMapper.writeValueAsString(payload(message, conv)).getBytes(StandardCharsets.UTF_8);
-            for (PushSubscription sub : subs) {
-                sender.send(sub, payload).whenComplete((status, err) -> {
-                    if (err != null) {
-                        log.debug("Push to subscription {} failed: {}", sub.getId(), err.getMessage());
-                    } else if (status == 404 || status == 410) {
-                        repository.deleteById(sub.getId()); // browser unsubscribed or expired
-                    } else if (status >= 400) {
-                        log.debug("Push service returned {} for subscription {}", status, sub.getId());
-                    }
-                });
-            }
+            sendTo(recipients, payload(message, members.get(0).getConversation()));
         } catch (Exception e) {
             log.warn("Push notification failed for message {}: {}", message.id(), e.getMessage());
+        }
+    }
+
+    /** "X is calling" for someone who's offline (app closed). Tapping it opens that chat. Never throws. */
+    public void notifyIncomingCall(Long toUserId, String callerName, Long conversationId, boolean video, String groupName) {
+        if (presenceService.isOnline(toUserId)) return; // the app is open and rings by itself
+        try {
+            Map<String, Object> p = new LinkedHashMap<>();
+            p.put("title", (video ? "🎥 Incoming video call" : "📞 Incoming voice call"));
+            p.put("body", groupName != null && !groupName.isBlank()
+                    ? callerName + " started a call in " + groupName
+                    : callerName + " is calling you");
+            p.put("conversationId", conversationId);
+            p.put("tag", "call-" + conversationId);
+            sendTo(List.of(toUserId), p);
+        } catch (Exception e) {
+            log.warn("Incoming-call push failed: {}", e.getMessage());
+        }
+    }
+
+    private void sendTo(List<Long> userIds, Map<String, Object> payloadMap) throws Exception {
+        List<PushSubscription> subs = repository.findByUserIdIn(userIds);
+        if (subs.isEmpty()) return;
+        byte[] payload = objectMapper.writeValueAsString(payloadMap).getBytes(StandardCharsets.UTF_8);
+        for (PushSubscription sub : subs) {
+            sender.send(sub, payload).whenComplete((status, err) -> {
+                if (err != null) {
+                    log.debug("Push to subscription {} failed: {}", sub.getId(), err.getMessage());
+                } else if (status == 404 || status == 410) {
+                    repository.deleteById(sub.getId()); // browser unsubscribed or expired
+                } else if (status >= 400) {
+                    log.debug("Push service returned {} for subscription {}", status, sub.getId());
+                }
+            });
         }
     }
 

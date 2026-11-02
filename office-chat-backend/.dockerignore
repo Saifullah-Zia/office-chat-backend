@@ -1,0 +1,8 @@
+target
+uploads
+vapid-keys.properties
+office-chat-backend
+*.zip
+.git
+.idea
+*.iml

@@ -109,7 +109,9 @@ public class SecurityConfig {
 
         CorsConfiguration config = new CorsConfiguration();
 
-        config.setAllowedOriginPatterns(List.of("*"));
+        // Only our own website(s) may call the API with credentials (CORS_ALLOWED_ORIGINS, comma-separated).
+        config.setAllowedOriginPatterns(java.util.Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim).filter(o -> !o.isEmpty()).toList());
 
         config.setAllowedMethods(
                 List.of(

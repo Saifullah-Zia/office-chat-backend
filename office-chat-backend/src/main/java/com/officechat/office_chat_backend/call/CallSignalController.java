@@ -31,6 +31,7 @@ public class CallSignalController {
     private final SimpMessagingTemplate messagingTemplate;
     private final UserRepository userRepository;
     private final ConversationService conversationService;
+    private final com.officechat.office_chat_backend.push.PushService pushService;
 
     @MessageMapping("/call.signal")
     public void signal(@Payload Map<String, Object> body, Authentication authentication) {
@@ -59,6 +60,26 @@ public class CallSignalController {
         event.put("fromUserName", from.getName());
         // Principal name is the email (see WebSocketAuthInterceptor), so this reaches only that user.
         messagingTemplate.convertAndSendToUser(to.getEmail(), "/queue/call", event);
+
+        // Ringing someone whose app is closed: push "X is calling" so the phone/desktop shows it.
+        if ("OFFER".equals(type)) {
+            boolean group = Boolean.TRUE.equals(body.get("isGroup"));
+            pushService.notifyIncomingCall(toUserId, from.getName(), conversationId,
+                    "VIDEO".equals(body.get("callType")), group ? String.valueOf(body.getOrDefault("groupName", "the group")) : null);
+        }
+    }
+
+    /**
+     * Raise / lower hand in a call. Members only; broadcast to the chat's call-events topic
+     * (subscribing to it is limited to members by the WebSocket interceptor).
+     */
+    @MessageMapping("/call.hand")
+    public void hand(@Payload Map<String, Object> body, Authentication authentication) {
+        if (authentication == null || !(authentication.getPrincipal() instanceof User from)) return;
+        Long conversationId = asLong(body.get("conversationId"));
+        if (conversationId == null || !conversationService.isMember(conversationId, from.getId())) return;
+        messagingTemplate.convertAndSend("/topic/conversation." + conversationId + ".hand", (Object) Map.of(
+                "userId", from.getId(), "name", from.getName(), "raised", Boolean.TRUE.equals(body.get("raised"))));
     }
 
     private static Long asLong(Object v) {

@@ -7,5 +7,6 @@ public enum MessageType {
     VOICE,
     AUDIO,
     VIDEO,
+    CALL,       // call log entry posted by the server ("Missed voice call", "Video call · 4m")
     POLL
 }

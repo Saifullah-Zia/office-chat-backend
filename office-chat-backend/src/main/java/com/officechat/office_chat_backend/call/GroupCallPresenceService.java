@@ -31,6 +31,7 @@ public class GroupCallPresenceService {
     private final CallRepository callRepository;
     private final ConversationService conversationService;
     private final SimpMessagingTemplate messagingTemplate;
+    private final CallEventService callEventService;
 
     private record Participant(String name, Instant lastSeen) {}
 
@@ -108,7 +109,7 @@ public class GroupCallPresenceService {
             callRepository.findById(l.callId).filter(c -> c.getEndedAt() == null).ifPresent(c -> {
                 c.setEndedAt(Instant.now());
                 c.setStatus(c.getAnsweredAt() != null ? CallStatus.ENDED : CallStatus.MISSED);
-                callRepository.save(c);
+                callEventService.postEnded(callRepository.save(c));
             });
         }
         broadcast(conversationId);

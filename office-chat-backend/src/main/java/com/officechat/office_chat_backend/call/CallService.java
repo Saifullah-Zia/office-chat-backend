@@ -18,6 +18,7 @@ import java.util.List;
 public class CallService {
 
     private final CallRepository callRepository;
+    private final CallEventService callEventService;
     private final ConversationRepository conversationRepository;
     private final ConversationService conversationService;
 
@@ -49,19 +50,26 @@ public class CallService {
     @Transactional
     public Call reject(Long callId, User user) {
         Call call = findCallAndAssertMember(callId, user.getId());
+        if (call.getEndedAt() != null) return call; // already closed by the other side
         call.setStatus(CallStatus.REJECTED);
         call.setEndedAt(Instant.now());
-        return callRepository.save(call);
+        Call saved = callRepository.save(call);
+        callEventService.postEnded(saved);
+        return saved;
     }
 
     @Transactional
     public Call end(Long callId, User user) {
         Call call = findCallAndAssertMember(callId, user.getId());
+        // Both people may hang up; only the first one closes the call (and posts the chat entry).
+        if (call.getEndedAt() != null) return call;
 
         // if it was still ringing and never answered, log it as missed rather than "ended"
         call.setStatus(call.getAnsweredAt() == null ? CallStatus.MISSED : CallStatus.ENDED);
         call.setEndedAt(Instant.now());
-        return callRepository.save(call);
+        Call saved = callRepository.save(call);
+        callEventService.postEnded(saved);
+        return saved;
     }
 
     public List<Call> getHistory(Long conversationId, Long requestingUserId) {

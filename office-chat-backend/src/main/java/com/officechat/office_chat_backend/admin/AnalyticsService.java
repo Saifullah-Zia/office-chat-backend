@@ -51,12 +51,43 @@ public class AnalyticsService {
         result.put("days", window);
         result.put("totals", totals);
         result.put("activeUsers", active);
-        result.put("messagesPerDay", messagesPerDay(since, window));
+        result.put("messagesPerDay", perDay("messages", "created_at", since, window));
         result.put("messagesByType", messagesByType(since));
         result.put("topSenders", topSenders(since));
         result.put("topGroups", topGroups(since));
         result.put("messagesInPeriod", count("select count(*) from messages where created_at >= ?1", since));
+        result.put("calls", callStats(since, window));
         return result;
+    }
+
+    /** Calls in the period: volume, answer rate, talk time, audio/video and group/1:1 split, top callers. */
+    private Map<String, Object> callStats(Instant since, int window) {
+        Map<String, Object> c = new LinkedHashMap<>();
+        long total = count("select count(*) from calls where started_at >= ?1", since);
+        long answered = count("select count(*) from calls where started_at >= ?1 and answered_at is not null", since);
+        c.put("total", total);
+        c.put("answered", answered);
+        c.put("missed", count("select count(*) from calls where started_at >= ?1 and status in ('MISSED', 'REJECTED')", since));
+        c.put("video", count("select count(*) from calls where started_at >= ?1 and type = 'VIDEO'", since));
+        c.put("group", count("""
+                select count(*) from calls k join conversations c on c.id = k.conversation_id
+                where k.started_at >= ?1 and c.type = 'GROUP'""", since));
+        // Talk time only counts calls that were answered and have ended.
+        c.put("avgDurationSecs", count("""
+                select coalesce(round(avg(extract(epoch from (ended_at - answered_at)))), 0) from calls
+                where started_at >= ?1 and answered_at is not null and ended_at is not null""", since));
+        c.put("totalMinutes", count("""
+                select coalesce(round(sum(extract(epoch from (ended_at - answered_at))) / 60), 0) from calls
+                where started_at >= ?1 and answered_at is not null and ended_at is not null""", since));
+        c.put("perDay", perDay("calls", "started_at", since, window));
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = em.createNativeQuery("""
+                select u.id, u.name, count(*) as n from calls k join users u on u.id = k.initiator_id
+                where k.started_at >= ?1 group by u.id, u.name order by n desc limit 5
+                """).setParameter(1, toSql(since)).getResultList();
+        c.put("topCallers", rows.stream().map(r -> Map.<String, Object>of(
+                "userId", ((Number) r[0]).longValue(), "name", String.valueOf(r[1]), "count", ((Number) r[2]).longValue())).toList());
+        return c;
     }
 
     private long count(String sql, Object... params) {
@@ -74,13 +105,13 @@ public class AnalyticsService {
     }
 
     /** One entry per day (UTC), including days with no messages. */
-    private List<Map<String, Object>> messagesPerDay(Instant since, int window) {
+    /** Rows per UTC day in table.column (trusted constants only), filling days with none. */
+    private List<Map<String, Object>> perDay(String table, String column, Instant since, int window) {
         @SuppressWarnings("unchecked")
-        List<Object[]> rows = em.createNativeQuery("""
-                select cast(date_trunc('day', created_at at time zone 'UTC') as date) as d, count(*)
-                from messages where created_at >= ?1
-                group by d order by d
-                """).setParameter(1, toSql(since)).getResultList();
+        List<Object[]> rows = em.createNativeQuery(
+                "select cast(date_trunc('day', " + column + " at time zone 'UTC') as date) as d, count(*) from "
+                        + table + " where " + column + " >= ?1 group by d order by d")
+                .setParameter(1, toSql(since)).getResultList();
         Map<LocalDate, Long> byDay = new HashMap<>();
         for (Object[] r : rows) {
             LocalDate day = r[0] instanceof java.sql.Date d ? d.toLocalDate() : LocalDate.parse(r[0].toString());
