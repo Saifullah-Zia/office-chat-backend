@@ -33,6 +33,7 @@ public class ReportService {
     private final ConversationService conversationService;
     private final RateLimiter rateLimiter;
     private final AuditService auditService;
+    private final ReportNotifier notifier;
 
     @Transactional
     public Map<String, Object> create(User reporter, Long targetUserId, Long messageId, String reason, String details) {
@@ -83,6 +84,7 @@ public class ReportService {
                 .status(Report.Status.OPEN)
                 .build());
 
+        notifier.newReport(report, reporter, nameOf(target), countOpen());
         return toView(report);
     }
 
@@ -117,6 +119,7 @@ public class ReportService {
         auditService.log(admin.getId(), "REPORT_" + next.name(), "REPORT", report.getId(),
                 "Report #" + report.getId() + " against " + nameOf(report.getTargetUserId())
                         + (note != null && !note.isBlank() ? " — " + note : ""));
+        notifier.reviewed(report, nameOf(report.getTargetUserId()), countOpen());
         return toView(report);
     }
 
