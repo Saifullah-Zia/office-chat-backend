@@ -128,12 +128,38 @@ public class PushService {
         nativeRepository.findByToken(token).filter(t -> t.getUserId().equals(userId)).ifPresent(nativeRepository::delete);
     }
 
+    /**
+     * "Is my phone reachable when the app is closed?" Sends a ringing test to the person's Android app(s)
+     * after a delay, giving them time to close the app first. Returns how many phones it will go to.
+     */
+    public int sendNativeTest(Long userId, int delaySeconds) {
+        int phones = nativeRepository.findByUserIdIn(List.of(userId)).size();
+        if (!fcmSender.isEnabled() || phones == 0) return 0;
+        int delay = Math.max(0, Math.min(delaySeconds, 120));
+        java.util.concurrent.CompletableFuture.delayedExecutor(delay, java.util.concurrent.TimeUnit.SECONDS).execute(() -> {
+            Map<String, Object> test = new LinkedHashMap<>();
+            test.put("type", "test");
+            test.put("title", "✅ Office Chat can reach this phone");
+            test.put("body", "Calls will ring even when the app is closed.");
+            sendNative(List.of(userId), test, 120);
+        });
+        return phones;
+    }
+
     private void sendNative(List<Long> userIds, Map<String, Object> data, int ttlSeconds) {
         if (!fcmSender.isEnabled()) return;
+        Object type = data.get("type");
+        // Calls are logged at INFO: "did the ring reach Google?" is the first question when a phone doesn't ring.
+        boolean important = "call".equals(type) || "call-cancel".equals(type) || "test".equals(type);
         for (NativePushToken t : nativeRepository.findByUserIdIn(userIds)) {
             fcmSender.send(t.getToken(), data, ttlSeconds).whenComplete((status, err) -> {
-                if (err != null) log.debug("FCM to device {} failed: {}", t.getId(), err.getMessage());
-                else if (status == 404) nativeRepository.deleteById(t.getId()); // app uninstalled or signed out
+                if (err != null) {
+                    log.warn("FCM {} to user {} phone #{} failed: {}", type, t.getUserId(), t.getId(), err.getMessage());
+                    return;
+                }
+                if (important) log.info("FCM {} to user {} phone #{}: {}", type, t.getUserId(), t.getId(),
+                        status == 200 ? "delivered to Google (200)" : "status " + status);
+                if (status == 404) nativeRepository.deleteById(t.getId()); // app uninstalled or signed out
             });
         }
     }

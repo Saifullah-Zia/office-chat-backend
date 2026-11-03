@@ -40,6 +40,13 @@ public class PushController {
         pushService.registerNative(user.getId(), body.get("token"), body.get("platform"));
     }
 
+    /** Android app: Body { delaySeconds } — a test ring to my phone(s) after the delay (close the app meanwhile). */
+    @PostMapping("/native/test")
+    public Map<String, Integer> testNative(@AuthenticationPrincipal User user, @RequestBody(required = false) Map<String, Integer> body) {
+        int delay = body != null && body.get("delaySeconds") != null ? body.get("delaySeconds") : 30;
+        return Map.of("phones", pushService.sendNativeTest(user.getId(), delay));
+    }
+
     /** Android app, on sign-out: Body { token } */
     @PostMapping("/native/unregister")
     public void unregisterNative(@AuthenticationPrincipal User user, @RequestBody Map<String, String> body) {
