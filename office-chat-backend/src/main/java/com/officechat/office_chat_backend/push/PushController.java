@@ -33,4 +33,16 @@ public class PushController {
     public void unsubscribe(@AuthenticationPrincipal User user, @RequestBody Map<String, String> body) {
         pushService.unsubscribe(user.getId(), body.get("endpoint"));
     }
+
+    /** Android app: Body { token, platform: "android" } (its Firebase token). */
+    @PostMapping("/native/register")
+    public void registerNative(@AuthenticationPrincipal User user, @RequestBody Map<String, String> body) {
+        pushService.registerNative(user.getId(), body.get("token"), body.get("platform"));
+    }
+
+    /** Android app, on sign-out: Body { token } */
+    @PostMapping("/native/unregister")
+    public void unregisterNative(@AuthenticationPrincipal User user, @RequestBody Map<String, String> body) {
+        pushService.unregisterNative(user.getId(), body.get("token"));
+    }
 }

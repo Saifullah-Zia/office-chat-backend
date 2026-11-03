@@ -94,6 +94,7 @@ public class CallRinger {
                 Map<String, Object> ring = new LinkedHashMap<>(p);
                 ring.put("ring", n);
                 pushService.pushToUser(toUserId, ring, RING_TTL_SECONDS);
+                if (n == 1) pushService.pushToUserNative(toUserId, ring, RING_TTL_SECONDS);
             } catch (CancellationException e) {
                 throw e;
             } catch (Exception e) {
@@ -151,6 +152,7 @@ public class CallRinger {
         }
         try {
             pushService.pushToUser(r.userId(), clear, missed ? MISSED_TTL_SECONDS : CLEAR_TTL_SECONDS);
+            pushService.pushToUserNative(r.userId(), clear, missed ? MISSED_TTL_SECONDS : CLEAR_TTL_SECONDS);
         } catch (Exception e) {
             log.debug("Ring clear push failed: {}", e.getMessage());
         }

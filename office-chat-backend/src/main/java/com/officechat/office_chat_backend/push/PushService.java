@@ -34,6 +34,8 @@ public class PushService {
     private final PresenceService presenceService;
     private final WebPushSender sender;
     private final ObjectMapper objectMapper;
+    private final NativePushTokenRepository nativeRepository;
+    private final FcmSender fcmSender;
 
     @Transactional
     public void subscribe(Long userId, String endpoint, String p256dh, String auth) {
@@ -76,7 +78,11 @@ public class PushService {
                     .filter(id -> !presenceService.isViewing(id))
                     .toList();
             if (recipients.isEmpty()) return;
-            sendTo(recipients, payload(message, members.get(0).getConversation()));
+            Map<String, Object> p = payload(message, members.get(0).getConversation());
+            sendTo(recipients, p);
+            Map<String, Object> nativeMsg = new LinkedHashMap<>(p);
+            nativeMsg.put("type", "message");
+            sendNative(recipients, nativeMsg, 86400);
         } catch (Exception e) {
             log.warn("Push notification failed for message {}: {}", message.id(), e.getMessage());
         }
@@ -89,6 +95,47 @@ public class PushService {
      */
     public void pushToUser(Long userId, Map<String, Object> payloadMap, int ttlSeconds) throws Exception {
         sendTo(List.of(userId), payloadMap, ttlSeconds);
+    }
+
+    /** To the person's Android app(s) (FCM). Used once per call for ringing: the app rings by itself. */
+    public void pushToUserNative(Long userId, Map<String, Object> payloadMap, int ttlSeconds) {
+        sendNative(List.of(userId), payloadMap, ttlSeconds);
+    }
+
+    // ── Android app (FCM) ───────────────────────────────────────────────
+
+    @Transactional
+    public void registerNative(Long userId, String token, String platform) {
+        if (token == null || token.isBlank() || token.length() > 512) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Invalid device token");
+        }
+        NativePushToken t = nativeRepository.findByToken(token).orElse(null);
+        if (t == null) {
+            if (nativeRepository.countByUserId(userId) >= MAX_SUBSCRIPTIONS_PER_USER) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Too many devices are registered for notifications");
+            }
+            t = NativePushToken.builder().token(token).build();
+        }
+        // A phone signed in to another account now belongs to that account.
+        t.setUserId(userId);
+        t.setPlatform(platform == null || platform.isBlank() ? "android" : platform.trim().toLowerCase());
+        t.setUpdatedAt(Instant.now());
+        nativeRepository.save(t);
+    }
+
+    @Transactional
+    public void unregisterNative(Long userId, String token) {
+        nativeRepository.findByToken(token).filter(t -> t.getUserId().equals(userId)).ifPresent(nativeRepository::delete);
+    }
+
+    private void sendNative(List<Long> userIds, Map<String, Object> data, int ttlSeconds) {
+        if (!fcmSender.isEnabled()) return;
+        for (NativePushToken t : nativeRepository.findByUserIdIn(userIds)) {
+            fcmSender.send(t.getToken(), data, ttlSeconds).whenComplete((status, err) -> {
+                if (err != null) log.debug("FCM to device {} failed: {}", t.getId(), err.getMessage());
+                else if (status == 404) nativeRepository.deleteById(t.getId()); // app uninstalled or signed out
+            });
+        }
     }
 
     private void sendTo(List<Long> userIds, Map<String, Object> payloadMap) throws Exception {

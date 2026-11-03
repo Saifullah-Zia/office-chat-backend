@@ -17,10 +17,17 @@ class CallRingerTest {
     private record Sent(Long userId, Map<String, Object> payload, int ttl) {}
 
     private final List<Sent> sent = new CopyOnWriteArrayList<>();
-    private final PushService fakePush = new PushService(null, null, null, null, null) {
+    /** Android-app (FCM) pushes, kept apart: the app gets one ring, not one every 5 seconds. */
+    private final List<Sent> sentNative = new CopyOnWriteArrayList<>();
+    private final PushService fakePush = new PushService(null, null, null, null, null, null, null) {
         @Override
         public void pushToUser(Long userId, Map<String, Object> payloadMap, int ttlSeconds) {
             sent.add(new Sent(userId, payloadMap, ttlSeconds));
+        }
+
+        @Override
+        public void pushToUserNative(Long userId, Map<String, Object> payloadMap, int ttlSeconds) {
+            sentNative.add(new Sent(userId, payloadMap, ttlSeconds));
         }
     };
     private final CallRinger ringer = new CallRinger(fakePush);
@@ -75,6 +82,11 @@ class CallRingerTest {
         int before = sent.size();
         Thread.sleep(200);
         assertEquals(before, sent.size(), "no more rings after answering");
+
+        // The Android app got exactly one ring and one cancel.
+        assertEquals(2, sentNative.size());
+        assertEquals("call", sentNative.get(0).payload().get("type"));
+        assertEquals("call-cancel", sentNative.get(1).payload().get("type"));
     }
 
     @Test
