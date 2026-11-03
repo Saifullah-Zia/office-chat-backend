@@ -87,6 +87,14 @@ public class FcmSender {
      * 404 means the token is gone (app uninstalled / signed out) and should be deleted.
      */
     public CompletableFuture<Integer> send(String deviceToken, Map<String, Object> data, int ttlSeconds) {
+        return send(deviceToken, data, ttlSeconds, true);
+    }
+
+    /**
+     * highPriority=false for messages that show nothing on the phone (e.g. "stop ringing, they answered").
+     * Google demotes apps whose high-priority messages often show nothing, and then calls arrive late.
+     */
+    public CompletableFuture<Integer> send(String deviceToken, Map<String, Object> data, int ttlSeconds, boolean highPriority) {
         if (!isEnabled()) return CompletableFuture.completedFuture(0);
         try {
             Map<String, String> strings = new LinkedHashMap<>();
@@ -95,7 +103,7 @@ public class FcmSender {
             message.put("token", deviceToken);
             message.put("data", strings);
             // "high" wakes a sleeping phone straight away (needed for ringing).
-            message.put("android", Map.of("priority", "high", "ttl", ttlSeconds + "s"));
+            message.put("android", Map.of("priority", highPriority ? "high" : "normal", "ttl", ttlSeconds + "s"));
             String body = objectMapper.writeValueAsString(Map.of("message", message));
 
             HttpRequest request = HttpRequest.newBuilder(URI.create(
@@ -106,6 +114,7 @@ public class FcmSender {
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
             return http.sendAsync(request, HttpResponse.BodyHandlers.ofString()).thenApply(res -> {
+                if (res.statusCode() == 401) forgetAccessToken(); // rejected: get a fresh one next time
                 if (res.statusCode() >= 400 && res.statusCode() != 404) {
                     log.debug("FCM returned {}: {}", res.statusCode(), res.body());
                 }
@@ -114,6 +123,10 @@ public class FcmSender {
         } catch (Exception e) {
             return CompletableFuture.failedFuture(e);
         }
+    }
+
+    private synchronized void forgetAccessToken() {
+        accessToken = null;
     }
 
     /** Google OAuth access token from the service-account key, reused until shortly before it expires. */

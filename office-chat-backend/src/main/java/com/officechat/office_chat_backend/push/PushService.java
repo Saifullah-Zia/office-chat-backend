@@ -151,8 +151,10 @@ public class PushService {
         Object type = data.get("type");
         // Calls are logged at INFO: "did the ring reach Google?" is the first question when a phone doesn't ring.
         boolean important = "call".equals(type) || "call-cancel".equals(type) || "test".equals(type);
+        // "Stop ringing" after an answer shows nothing on the phone: normal priority (see FcmSender).
+        boolean high = !("call-cancel".equals(type) && !Boolean.TRUE.equals(data.get("missed")));
         for (NativePushToken t : nativeRepository.findByUserIdIn(userIds)) {
-            fcmSender.send(t.getToken(), data, ttlSeconds).whenComplete((status, err) -> {
+            fcmSender.send(t.getToken(), data, ttlSeconds, high).whenComplete((status, err) -> {
                 if (err != null) {
                     log.warn("FCM {} to user {} phone #{} failed: {}", type, t.getUserId(), t.getId(), err.getMessage());
                     return;

@@ -94,7 +94,10 @@ public class CallRinger {
                 Map<String, Object> ring = new LinkedHashMap<>(p);
                 ring.put("ring", n);
                 pushService.pushToUser(toUserId, ring, RING_TTL_SECONDS);
-                if (n == 1) pushService.pushToUserNative(toUserId, ring, RING_TTL_SECONDS);
+                // The Android app rings by itself, so one push is enough... when it arrives. A phone that's
+                // been idle for hours (deep sleep, or the maker's battery saver) can miss or delay one, so
+                // send it again at 10s and 20s; the app ignores the repeats once it's ringing.
+                if (n == 1 || n == 3 || n == 5) pushService.pushToUserNative(toUserId, ring, RING_TTL_SECONDS);
             } catch (CancellationException e) {
                 throw e;
             } catch (Exception e) {
@@ -142,6 +145,7 @@ public class CallRinger {
         clear.put("type", "call-cancel");
         clear.put("tag", p.get("tag"));
         clear.put("conversationId", r.conversationId());
+        clear.put("callId", r.callId()); // the app then ignores a late repeat ring for this call
         clear.put("missed", missed);
         if (missed) {
             boolean video = "VIDEO".equals(p.get("callType"));
