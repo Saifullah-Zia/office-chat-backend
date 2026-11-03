@@ -6,3 +6,4 @@ office-chat-backend
 .git
 .idea
 *.iml
+local-secrets.properties

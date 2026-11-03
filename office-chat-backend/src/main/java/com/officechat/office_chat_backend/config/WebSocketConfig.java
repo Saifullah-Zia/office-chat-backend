@@ -5,6 +5,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
@@ -29,7 +31,16 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        registry.enableSimpleBroker("/topic", "/queue"); // /queue added: needed for per-user call signaling
+        // Heartbeats every 10s both ways: a phone that lost signal is dropped within ~20s instead of
+        // looking "online" for minutes (which also held back its notifications).
+        ThreadPoolTaskScheduler heartbeats = new ThreadPoolTaskScheduler();
+        heartbeats.setPoolSize(1);
+        heartbeats.setThreadNamePrefix("ws-heartbeat-");
+        heartbeats.setDaemon(true);
+        heartbeats.initialize();
+        registry.enableSimpleBroker("/topic", "/queue") // /queue added: needed for per-user call signaling
+                .setHeartbeatValue(new long[]{10_000, 10_000})
+                .setTaskScheduler(heartbeats);
         registry.setApplicationDestinationPrefixes("/app");
         registry.setUserDestinationPrefix("/user"); // default, explicit for clarity
     }

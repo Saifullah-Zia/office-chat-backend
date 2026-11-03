@@ -71,7 +71,9 @@ public class PushService {
                     .filter(m -> !m.getUser().getId().equals(message.senderId()))
                     .filter(m -> m.getMutedUntil() == null || m.getMutedUntil().isBefore(now))
                     .map(m -> m.getUser().getId())
-                    .filter(id -> !presenceService.isOnline(id)) // online users get the in-app notification
+                    // Notify every device unless they're looking at the app right now (each device's
+                    // service worker also stays quiet while the app is on its screen).
+                    .filter(id -> !presenceService.isViewing(id))
                     .toList();
             if (recipients.isEmpty()) return;
             sendTo(recipients, payload(message, members.get(0).getConversation()));

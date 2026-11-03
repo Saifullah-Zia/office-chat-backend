@@ -69,7 +69,8 @@ public class FileController {
         var response = ResponseEntity.ok()
                 .contentType(inline ? mediaType : MediaType.APPLICATION_OCTET_STREAM)
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
-                .header(HttpHeaders.CACHE_CONTROL, "private, max-age=86400")
+                // A file never changes once uploaded: the browser may keep it for the link's week.
+                .header(HttpHeaders.CACHE_CONTROL, "private, max-age=604800, immutable")
                 .header(HttpHeaders.ACCEPT_RANGES, "bytes")
                 .header("X-Content-Type-Options", "nosniff");
         // Sandbox anything opened directly in a tab. (Chrome's PDF viewer refuses to run sandboxed.)

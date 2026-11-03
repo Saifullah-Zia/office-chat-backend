@@ -20,7 +20,12 @@ import java.util.Base64;
 @Component
 public class DownloadUrlSigner {
 
-    private static final Duration TTL = Duration.ofDays(7);
+    /**
+     * Links stay valid 7–14 days. The expiry is rounded to a whole week so a file keeps the SAME link
+     * for a week: the browser then reuses its saved copy instead of downloading it again (from Railway)
+     * every time the chat is opened, which a link that changes every second made impossible.
+     */
+    private static final long BUCKET_SECONDS = Duration.ofDays(7).toSeconds();
     private static volatile DownloadUrlSigner instance;
 
     @Value("${jwt.secret}")
@@ -40,7 +45,7 @@ public class DownloadUrlSigner {
         String base = "/api/files/" + attachmentId + "/download";
         DownloadUrlSigner signer = instance;
         if (signer == null) return base; // not yet initialised (e.g. unit tests)
-        long exp = Instant.now().plus(TTL).getEpochSecond();
+        long exp = (Instant.now().getEpochSecond() / BUCKET_SECONDS + 2) * BUCKET_SECONDS;
         return base + "?exp=" + exp + "&sig=" + signer.sign(attachmentId, exp);
     }
 

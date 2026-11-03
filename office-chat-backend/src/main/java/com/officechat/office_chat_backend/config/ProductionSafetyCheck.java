@@ -31,7 +31,7 @@ public class ProductionSafetyCheck {
             throw new IllegalStateException("Set JWT_SECRET (64+ random characters) before running in production.");
         }
         if (System.getenv("AGORA_APP_CERTIFICATE") == null) {
-            log.warn("AGORA_APP_CERTIFICATE is not set: calls use the development certificate from git history. Rotate it in the Agora console.");
+            log.warn("AGORA_APP_CERTIFICATE is not set: calls won't connect until it is added to the Railway variables.");
         }
         if (allowedOrigins.contains("localhost")) {
             log.warn("CORS_ALLOWED_ORIGINS is still localhost; set it to the frontend's https address or the browser will block the app.");

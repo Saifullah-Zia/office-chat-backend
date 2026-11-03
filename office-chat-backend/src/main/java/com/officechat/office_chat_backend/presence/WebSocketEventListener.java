@@ -6,14 +6,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.stereotype.Component;
 import org.springframework.web.socket.messaging.SessionConnectedEvent;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
 import java.security.Principal;
 import java.time.Instant;
 
-@Component
+@org.springframework.stereotype.Controller
 @RequiredArgsConstructor
 public class WebSocketEventListener {
 
@@ -33,6 +32,7 @@ public class WebSocketEventListener {
 
     @EventListener
     public void handleDisconnect(SessionDisconnectEvent event) {
+        presenceService.sessionClosed(event.getSessionId());
         User user = extractUser(event.getUser());
         if (user == null) return;
 
@@ -45,6 +45,15 @@ public class WebSocketEventListener {
             });
             messagingTemplate.convertAndSend("/topic/presence", PresenceEvent.offline(user.getId(), lastSeen));
         }
+    }
+
+    /** Body: { visible }. Each app reports when it comes on screen or goes to the background. */
+    @org.springframework.messaging.handler.annotation.MessageMapping("/presence.visible")
+    public void visibility(@org.springframework.messaging.handler.annotation.Payload java.util.Map<String, Object> body,
+                           org.springframework.messaging.simp.SimpMessageHeaderAccessor headers) {
+        User user = extractUser(headers.getUser());
+        if (user == null) return;
+        presenceService.setVisible(headers.getSessionId(), user.getId(), Boolean.TRUE.equals(body.get("visible")));
     }
 
     private User extractUser(Principal principal) {

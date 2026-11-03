@@ -13,7 +13,9 @@ WORKDIR /app
 COPY --from=build /app/app.jar app.jar
 # Uploads, profile photos and push keys live on the Railway volume mounted here.
 RUN mkdir -p /data
-# Size the heap from the container's memory limit; Railway sets PORT.
-ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+UseSerialGC"
+# Memory: Railway bills what the app actually uses, and Java otherwise grows into most of the
+# container's (large) limit. 384 MB of heap is plenty for 20–40 people; raise -Xmx here, or override
+# JAVA_TOOL_OPTIONS in Railway's Variables, if the team grows a lot. Railway sets PORT.
+ENV JAVA_TOOL_OPTIONS="-Xmx384m -Xss512k -XX:MaxMetaspaceSize=192m -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError"
 EXPOSE 8080
 CMD ["java", "-jar", "app.jar"]

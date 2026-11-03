@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 @Entity
-@Table(name = "poll_votes")
+@Table(name = "poll_votes", indexes = @Index(name = "idx_poll_votes_poll", columnList = "poll_id"))
 @Data
 @Builder
 @NoArgsConstructor

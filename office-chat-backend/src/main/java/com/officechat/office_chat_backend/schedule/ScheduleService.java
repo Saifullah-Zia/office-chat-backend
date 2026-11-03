@@ -112,7 +112,7 @@ public class ScheduleService {
     }
 
     /** Sends everything that's due. Each message goes through the normal send path (permissions, blocks…). */
-    @Scheduled(fixedDelay = 15_000, initialDelay = 20_000)
+    @Scheduled(fixedDelay = 30_000, initialDelay = 20_000)
     public void sendDue() {
         for (ScheduledMessage s : scheduledRepository.findByStatusAndSendAtLessThanEqualOrderBySendAtAsc(
                 ScheduledMessage.Status.PENDING, Instant.now())) {
@@ -208,7 +208,7 @@ public class ScheduleService {
         return view(reminderRepository.save(r));
     }
 
-    @Scheduled(fixedDelay = 15_000, initialDelay = 25_000)
+    @Scheduled(fixedDelay = 30_000, initialDelay = 25_000)
     public void fireDueReminders() {
         for (Reminder r : reminderRepository.findByStatusAndRemindAtLessThanEqualOrderByRemindAtAsc(
                 Reminder.Status.PENDING, Instant.now())) {
