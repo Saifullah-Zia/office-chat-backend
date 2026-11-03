@@ -64,6 +64,8 @@ public class SecurityConfig {
                         // Profile photos: random file names, loaded by <img> tags (no auth header)
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/users/photo/*").permitAll()
                         .requestMatchers("/ws/**").permitAll()
+                        // "Decline" on a call notification: checked with a per-call signed token instead of a login.
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/calls/*/push-decline").permitAll()
                         .anyRequest().authenticated()
                 )
 

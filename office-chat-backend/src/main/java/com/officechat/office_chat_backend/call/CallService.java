@@ -5,6 +5,7 @@ import com.officechat.office_chat_backend.conversation.Conversation;
 import com.officechat.office_chat_backend.conversation.ConversationRepository;
 import com.officechat.office_chat_backend.conversation.ConversationService;
 import com.officechat.office_chat_backend.user.User;
+import com.officechat.office_chat_backend.user.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -21,6 +22,7 @@ public class CallService {
     private final CallEventService callEventService;
     private final ConversationRepository conversationRepository;
     private final ConversationService conversationService;
+    private final CallRinger callRinger;
 
     @Transactional
     public Call initiate(Long conversationId, User initiator, CallType type) {
@@ -42,6 +44,7 @@ public class CallService {
     @Transactional
     public Call accept(Long callId, User user) {
         Call call = findCallAndAssertMember(callId, user.getId());
+        callRinger.dismiss(call.getConversation().getId(), user.getId());
         call.setStatus(CallStatus.ONGOING);
         call.setAnsweredAt(Instant.now());
         return callRepository.save(call);
@@ -50,6 +53,7 @@ public class CallService {
     @Transactional
     public Call reject(Long callId, User user) {
         Call call = findCallAndAssertMember(callId, user.getId());
+        callRinger.dismiss(call.getConversation().getId(), user.getId());
         if (call.getEndedAt() != null) return call; // already closed by the other side
         call.setStatus(CallStatus.REJECTED);
         call.setEndedAt(Instant.now());
@@ -70,6 +74,22 @@ public class CallService {
         Call saved = callRepository.save(call);
         callEventService.postEnded(saved);
         return saved;
+    }
+
+    /** "Decline" tapped on the ringing notification. Returns the call if it was declined, else null. */
+    @Transactional
+    public Call declineFromNotification(Long callId, Long userId, String token, UserRepository userRepository) {
+        if (!callRinger.isValidDeclineToken(callId, userId, token)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Invalid decline link");
+        }
+        User user = userRepository.findById(userId).filter(User::isActive)
+                .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN, "Invalid decline link"));
+        Call call = findCallAndAssertMember(callId, userId);
+        if (call.getConversation().getType() == com.officechat.office_chat_backend.conversation.ConversationType.GROUP) {
+            callRinger.dismiss(call.getConversation().getId(), userId); // a group call goes on without me
+            return null;
+        }
+        return reject(callId, user);
     }
 
     public List<Call> getHistory(Long conversationId, Long requestingUserId) {

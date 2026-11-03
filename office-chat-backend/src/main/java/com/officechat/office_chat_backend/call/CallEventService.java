@@ -26,9 +26,13 @@ public class CallEventService {
     private final MessageService messageService;
     private final MessageBroadcaster broadcaster;
     private final ConversationService conversationService;
+    private final CallRinger callRinger;
+    private final org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
 
     @Transactional
     public void postEnded(Call call) {
+        callRinger.callEnded(call.getId()); // anyone still being rung missed it
+        notifyEnded(call);
         try {
             boolean video = call.getType() == CallType.VIDEO;
             String icon = video ? "🎥" : "📞";
@@ -51,6 +55,22 @@ public class CallEventService {
             broadcaster.broadcastNew(messageService.getMessageView(m.getId(), call.getInitiator().getId()));
         } catch (Exception e) {
             log.warn("Couldn't post the call entry for call {}: {}", call.getId(), e.getMessage());
+        }
+    }
+
+    /** "This call is over" to everyone in the chat: an app that missed the other side's hang-up leaves too. */
+    private void notifyEnded(Call call) {
+        try {
+            Long conversationId = call.getConversation().getId();
+            java.util.Map<String, Object> ended = new java.util.LinkedHashMap<>();
+            ended.put("type", "ENDED");
+            ended.put("conversationId", conversationId);
+            ended.put("callId", call.getId());
+            for (String email : conversationService.getMemberEmails(conversationId)) {
+                messagingTemplate.convertAndSendToUser(email, "/queue/call", ended);
+            }
+        } catch (Exception e) {
+            log.warn("Couldn't send call-ended for call {}: {}", call.getId(), e.getMessage());
         }
     }
 

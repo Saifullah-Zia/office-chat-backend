@@ -31,7 +31,8 @@ public class CallSignalController {
     private final SimpMessagingTemplate messagingTemplate;
     private final UserRepository userRepository;
     private final ConversationService conversationService;
-    private final com.officechat.office_chat_backend.push.PushService pushService;
+    private final CallRinger callRinger;
+    private final CallRepository callRepository;
 
     @MessageMapping("/call.signal")
     public void signal(@Payload Map<String, Object> body, Authentication authentication) {
@@ -61,11 +62,26 @@ public class CallSignalController {
         // Principal name is the email (see WebSocketAuthInterceptor), so this reaches only that user.
         messagingTemplate.convertAndSendToUser(to.getEmail(), "/queue/call", event);
 
-        // Ringing someone whose app is closed: push "X is calling" so the phone/desktop shows it.
-        if ("OFFER".equals(type)) {
-            boolean group = Boolean.TRUE.equals(body.get("isGroup"));
-            pushService.notifyIncomingCall(toUserId, from.getName(), conversationId,
-                    "VIDEO".equals(body.get("callType")), group ? String.valueOf(body.getOrDefault("groupName", "the group")) : null);
+        // Phone-style ringing on the person's devices, even when the app is closed (see CallRinger).
+        switch (type) {
+            case "OFFER" -> {
+                boolean group = Boolean.TRUE.equals(body.get("isGroup"));
+                // Only trust a call id that really is a call in this chat.
+                Long callId = asLong(body.get("callId"));
+                if (callId != null && callRepository.findById(callId)
+                        .filter(c -> c.getConversation().getId().equals(conversationId)).isEmpty()) {
+                    callId = null;
+                }
+                callRinger.start(toUserId, from, conversationId, callId, "VIDEO".equals(body.get("callType")),
+                        group, group ? String.valueOf(body.getOrDefault("groupName", "the group")) : null);
+            }
+            // The person being rung picked up: stop ringing their other devices.
+            case "ANSWER" -> callRinger.dismiss(conversationId, from.getId());
+            case "HANGUP", "BUSY" -> {
+                callRinger.missed(conversationId, toUserId);   // the caller gave up while it rang
+                callRinger.dismiss(conversationId, from.getId()); // or the person being rung declined
+            }
+            default -> { }
         }
     }
 

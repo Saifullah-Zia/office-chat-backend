@@ -63,12 +63,17 @@ public class WebPushSender {
 
     /** Sends one push; completes with the HTTP status (404/410 = subscription is gone). */
     public CompletableFuture<Integer> send(PushSubscription sub, byte[] payload) {
+        return send(sub, payload, 86400);
+    }
+
+    /** ttlSeconds: how long the push service keeps it for a device that's offline (calls: seconds, not a day). */
+    public CompletableFuture<Integer> send(PushSubscription sub, byte[] payload, int ttlSeconds) {
         try {
             byte[] body = encrypt(payload, B64.decode(sub.getP256dh()), B64.decode(sub.getAuth()));
             URI endpoint = URI.create(sub.getEndpoint());
             HttpRequest request = HttpRequest.newBuilder(endpoint)
                     .timeout(Duration.ofSeconds(15))
-                    .header("TTL", "86400")
+                    .header("TTL", String.valueOf(ttlSeconds))
                     .header("Urgency", "high")
                     .header("Content-Encoding", "aes128gcm")
                     .header("Content-Type", "application/octet-stream")

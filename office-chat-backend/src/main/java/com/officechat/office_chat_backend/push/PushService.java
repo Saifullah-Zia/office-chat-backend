@@ -80,29 +80,25 @@ public class PushService {
         }
     }
 
-    /** "X is calling" for someone who's offline (app closed). Tapping it opens that chat. Never throws. */
-    public void notifyIncomingCall(Long toUserId, String callerName, Long conversationId, boolean video, String groupName) {
-        if (presenceService.isOnline(toUserId)) return; // the app is open and rings by itself
-        try {
-            Map<String, Object> p = new LinkedHashMap<>();
-            p.put("title", (video ? "🎥 Incoming video call" : "📞 Incoming voice call"));
-            p.put("body", groupName != null && !groupName.isBlank()
-                    ? callerName + " started a call in " + groupName
-                    : callerName + " is calling you");
-            p.put("conversationId", conversationId);
-            p.put("tag", "call-" + conversationId);
-            sendTo(List.of(toUserId), p);
-        } catch (Exception e) {
-            log.warn("Incoming-call push failed: {}", e.getMessage());
-        }
+    /**
+     * Push to all of one person's devices regardless of whether they look online (used for calls, see
+     * CallRinger: a phone whose app was just closed can still look connected but can't ring).
+     * The service worker skips it when the app is open on screen.
+     */
+    public void pushToUser(Long userId, Map<String, Object> payloadMap, int ttlSeconds) throws Exception {
+        sendTo(List.of(userId), payloadMap, ttlSeconds);
     }
 
     private void sendTo(List<Long> userIds, Map<String, Object> payloadMap) throws Exception {
+        sendTo(userIds, payloadMap, 86400);
+    }
+
+    private void sendTo(List<Long> userIds, Map<String, Object> payloadMap, int ttlSeconds) throws Exception {
         List<PushSubscription> subs = repository.findByUserIdIn(userIds);
         if (subs.isEmpty()) return;
         byte[] payload = objectMapper.writeValueAsString(payloadMap).getBytes(StandardCharsets.UTF_8);
         for (PushSubscription sub : subs) {
-            sender.send(sub, payload).whenComplete((status, err) -> {
+            sender.send(sub, payload, ttlSeconds).whenComplete((status, err) -> {
                 if (err != null) {
                     log.debug("Push to subscription {} failed: {}", sub.getId(), err.getMessage());
                 } else if (status == 404 || status == 410) {
