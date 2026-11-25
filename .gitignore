@@ -1,0 +1,5 @@
+# User uploads (chat files, photos): never commit
+uploads/
+**/uploads/
+**/vapid-keys.properties
+**/local-secrets.properties

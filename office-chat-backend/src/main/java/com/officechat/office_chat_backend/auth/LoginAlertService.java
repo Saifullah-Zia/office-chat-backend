@@ -33,7 +33,7 @@ public class LoginAlertService {
         String link = frontendUrl.replaceAll("/+$", "") + "/";
 
         String html = "<div style=\"font-family:Arial,sans-serif;max-width:520px;margin:auto;color:#0f172a\">"
-                + "<h2 style=\"margin:0 0 12px\">Office Chat</h2>"
+                + "<h2 style=\"margin:0 0 12px\">Jcat Connect</h2>"
                 + "<p>Hi " + esc(user.getName()) + ",</p>"
                 + "<p>Your account was just signed in on a <b>new device</b>:</p>"
                 + "<table style=\"border-collapse:collapse;margin:8px 0 16px\">"
@@ -41,15 +41,15 @@ public class LoginAlertService {
                 + "<tr><td style=\"padding:4px 12px 4px 0;color:#64748b\">Time</td><td><b>" + esc(when) + "</b></td></tr>"
                 + "</table>"
                 + "<p>If this was you, you can ignore this email.</p>"
-                + "<p><b>If it wasn't you:</b> open Office Chat, change your password, and use "
+                + "<p><b>If it wasn't you:</b> open Jcat Connect, change your password, and use "
                 + "<i>Settings → Security → Where you're signed in → Sign out all others</i>.</p>"
                 + "<p style=\"margin:20px 0\"><a href=\"" + link + "\" style=\"background:#4f46e5;color:#fff;padding:10px 18px;"
-                + "border-radius:8px;text-decoration:none;font-weight:bold\">Open Office Chat</a></p></div>";
-        String text = "Your Office Chat account was signed in on a new device.\nDevice: " + device + "\nTime: " + when
+                + "border-radius:8px;text-decoration:none;font-weight:bold\">Open Jcat Connect</a></p></div>";
+        String text = "Your Jcat Connect account was signed in on a new device.\nDevice: " + device + "\nTime: " + when
                 + "\n\nIf this wasn't you, change your password and sign out other devices: " + link;
 
         // In the background so signing in isn't slowed down by the email.
-        CompletableFuture.runAsync(() -> emailService.send(user.getEmail(), "New sign-in to your Office Chat account", html, text));
+        CompletableFuture.runAsync(() -> emailService.send(user.getEmail(), "New sign-in to your Jcat Connect account", html, text));
     }
 
     /** "Chrome on Windows" style label from a User-Agent. */
