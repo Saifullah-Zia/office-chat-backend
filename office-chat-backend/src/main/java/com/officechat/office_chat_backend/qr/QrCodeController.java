@@ -30,7 +30,7 @@ public class QrCodeController {
 
     private final QrCodeService service;
 
-    public record SaveRequest(String clientName, String url, Boolean managed) {}
+    public record SaveRequest(String clientName, String url, Boolean managed, String logo) {}
 
     public record BlockRequest(boolean blocked) {}
 
@@ -43,13 +43,13 @@ public class QrCodeController {
     @PostMapping("/api/admin/qr-codes")
     @PreAuthorize("hasRole('ADMIN')")
     public QrCodeService.View create(@AuthenticationPrincipal User admin, @RequestBody SaveRequest r) {
-        return service.create(admin.getId(), r.clientName(), r.url(), Boolean.TRUE.equals(r.managed()));
+        return service.create(admin.getId(), r.clientName(), r.url(), Boolean.TRUE.equals(r.managed()), r.logo());
     }
 
     @PutMapping("/api/admin/qr-codes/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public QrCodeService.View update(@AuthenticationPrincipal User admin, @PathVariable Long id, @RequestBody SaveRequest r) {
-        return service.update(admin.getId(), id, r.clientName(), r.url());
+        return service.update(admin.getId(), id, r.clientName(), r.url(), r.logo());
     }
 
     @PutMapping("/api/admin/qr-codes/{id}/blocked")

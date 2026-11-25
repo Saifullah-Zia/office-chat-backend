@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import java.net.URI;
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
 
 @Slf4j
@@ -22,6 +23,9 @@ public class QrCodeService {
     // No look-alikes (0/o, 1/l/i): the link may be typed by hand.
     private static final String ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz";
 
+    private static final String PNG_PREFIX = "data:image/png;base64,";
+    private static final int MAX_LOGO_CHARS = 600_000;
+
     private final QrCodeRepository repository;
     private final AuditService auditService;
 
@@ -31,29 +35,29 @@ public class QrCodeService {
 
     /** content = what the printed code holds. */
     public record View(Long id, String clientName, String targetUrl, boolean managed, boolean blocked, long scans,
-                       Instant lastScanAt, Instant createdAt, String content) {}
+                       Instant lastScanAt, Instant createdAt, String content, String logo) {}
 
     public List<View> list() {
         return repository.findAllByOrderByCreatedAtDesc().stream().map(this::view).toList();
     }
 
-    public View create(Long adminId, String clientName, String url, boolean managed) {
+    public View create(Long adminId, String clientName, String url, boolean managed, String logo) {
         QrCode q = repository.save(QrCode.builder()
                 .code(newCode()).clientName(cleanName(clientName)).targetUrl(cleanUrl(url))
-                .managed(managed).createdAt(Instant.now()).build());
+                .managed(managed).logo(cleanLogo(logo)).createdAt(Instant.now()).build());
         auditService.log(adminId, "QR_CREATED", "QR_CODE", q.getId(), q.getClientName());
         return view(q);
     }
 
-    /** Printed managed codes follow the new address straight away. */
-    public View update(Long adminId, Long id, String clientName, String url) {
+    /** Printed managed codes follow the new address straight away. logo: null leaves it as it is, "" removes it. */
+    public View update(Long adminId, Long id, String clientName, String url, String logo) {
         QrCode q = find(id);
         String name = cleanName(clientName);
         String target = cleanUrl(url);
         if (!q.isManaged() && !target.equals(q.getTargetUrl())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "A simple QR code holds its link in the print. Create a new one instead.");
         }
-        repository.updateDetails(id, name, target);
+        repository.updateDetails(id, name, target, logo == null ? q.getLogo() : cleanLogo(logo));
         auditService.log(adminId, "QR_CHANGED", "QR_CODE", id, name);
         return view(find(id));
     }
@@ -92,7 +96,7 @@ public class QrCodeService {
 
     private View view(QrCode q) {
         return new View(q.getId(), q.getClientName(), q.getTargetUrl(), q.isManaged(), q.isBlocked(), q.getScans(),
-                q.getLastScanAt(), q.getCreatedAt(), q.isManaged() ? base() + "/q/" + q.getCode() : q.getTargetUrl());
+                q.getLastScanAt(), q.getCreatedAt(), q.isManaged() ? base() + "/q/" + q.getCode() : q.getTargetUrl(), q.getLogo());
     }
 
     private String base() {
@@ -109,6 +113,19 @@ public class QrCodeService {
         String n = name == null ? "" : name.trim();
         if (n.isEmpty() || n.length() > 100) throw new ApiException(HttpStatus.BAD_REQUEST, "Enter the client's name (up to 100 characters)");
         return n;
+    }
+
+    /** The page shrinks logos to a small PNG; anything else is refused. */
+    static String cleanLogo(String logo) {
+        if (logo == null || logo.isEmpty()) return null;
+        try {
+            if (!logo.startsWith(PNG_PREFIX) || logo.length() > MAX_LOGO_CHARS) throw new IllegalArgumentException();
+            byte[] b = Base64.getDecoder().decode(logo.substring(PNG_PREFIX.length()));
+            if (b.length < 33 || (b[0] & 0xff) != 0x89 || b[1] != 'P' || b[2] != 'N' || b[3] != 'G') throw new IllegalArgumentException();
+            return logo;
+        } catch (IllegalArgumentException e) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "That logo can't be used. Try another picture.");
+        }
     }
 
     /** A full http(s) address of a public website; "https://" is added if left out. */

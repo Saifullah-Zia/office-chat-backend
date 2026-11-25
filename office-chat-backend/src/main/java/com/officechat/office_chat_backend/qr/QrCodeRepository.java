@@ -24,8 +24,8 @@ public interface QrCodeRepository extends JpaRepository<QrCode, Long> {
 
     @Modifying(clearAutomatically = true)
     @Transactional
-    @Query("update QrCode q set q.clientName = :name, q.targetUrl = :url where q.id = :id")
-    void updateDetails(@Param("id") Long id, @Param("name") String name, @Param("url") String url);
+    @Query("update QrCode q set q.clientName = :name, q.targetUrl = :url, q.logo = :logo where q.id = :id")
+    void updateDetails(@Param("id") Long id, @Param("name") String name, @Param("url") String url, @Param("logo") String logo);
 
     @Modifying(clearAutomatically = true)
     @Transactional

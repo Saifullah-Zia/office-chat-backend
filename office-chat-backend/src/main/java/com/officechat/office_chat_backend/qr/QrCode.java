@@ -30,6 +30,10 @@ public class QrCode {
     @Column(name = "target_url", nullable = false, length = 500)
     private String targetUrl;
 
+    /** Centre logo: a small PNG as a data URL, or null. */
+    @Column(columnDefinition = "text")
+    private String logo;
+
     @Column(nullable = false)
     private boolean managed;
 

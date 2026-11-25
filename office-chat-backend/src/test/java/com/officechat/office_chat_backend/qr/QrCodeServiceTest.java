@@ -51,6 +51,19 @@ class QrCodeServiceTest {
     }
 
     @Test
+    void logoMustBeAPng() {
+        assertNull(QrCodeService.cleanLogo(null));
+        assertNull(QrCodeService.cleanLogo(""));
+        byte[] png = new byte[40];
+        png[0] = (byte) 0x89; png[1] = 'P'; png[2] = 'N'; png[3] = 'G';
+        String ok = "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString(png);
+        assertEquals(ok, QrCodeService.cleanLogo(ok));
+        for (String bad : new String[]{"data:image/svg+xml;base64,AAAA", "data:image/png;base64,AAAA", "data:image/png;base64,\"/><script>", "https://x.com/a.png"}) {
+            assertThrows(ApiException.class, () -> QrCodeService.cleanLogo(bad), bad);
+        }
+    }
+
+    @Test
     void simpleCodesCannotBeBlocked() {
         Mockito.when(repo.findById(1L)).thenReturn(Optional.of(code(false, false)));
         assertThrows(ApiException.class, () -> service.setBlocked(9L, 1L, true));
