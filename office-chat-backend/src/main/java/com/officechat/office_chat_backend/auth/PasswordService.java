@@ -87,15 +87,15 @@ public class PasswordService {
             String link = frontendUrl.replaceAll("/+$", "") + "/reset-password?token=" + token;
             String html = """
                     <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;color:#0f172a">
-                      <h2 style="margin:0 0 12px">Reset your Jcat Connect password</h2>
+                      <h2 style="margin:0 0 12px">Reset your JCAT Connect password</h2>
                       <p>Hi %s,</p>
                       <p>Someone (hopefully you) asked to reset your password. This link works once and expires in 30 minutes.</p>
                       <p style="margin:24px 0"><a href="%s" style="background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold">Choose a new password</a></p>
                       <p style="color:#64748b;font-size:13px">If you didn't ask for this, ignore this email; your password stays the same.</p>
                     </div>""".formatted(escape(u.getName()), link);
-            String text = "Hi " + u.getName() + ",\n\nReset your Jcat Connect password (the link works once and expires in 30 minutes):\n"
+            String text = "Hi " + u.getName() + ",\n\nReset your JCAT Connect password (the link works once and expires in 30 minutes):\n"
                     + link + "\n\nIf you didn't ask for this, ignore this email.";
-            emailService.send(u.getEmail(), "Reset your Jcat Connect password", html, text);
+            emailService.send(u.getEmail(), "Reset your JCAT Connect password", html, text);
             auditService.log(u.getId(), "PASSWORD_RESET_REQUESTED", "USER", u.getId(), "Reset link emailed");
         });
     }

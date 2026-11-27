@@ -139,7 +139,7 @@ public class PushService {
         java.util.concurrent.CompletableFuture.delayedExecutor(delay, java.util.concurrent.TimeUnit.SECONDS).execute(() -> {
             Map<String, Object> test = new LinkedHashMap<>();
             test.put("type", "test");
-            test.put("title", "✅ Jcat Connect can reach this phone");
+            test.put("title", "✅ JCAT Connect can reach this phone");
             test.put("body", "Calls will ring even when the app is closed.");
             sendNative(List.of(userId), test, 120);
         });

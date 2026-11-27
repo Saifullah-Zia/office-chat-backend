@@ -75,7 +75,7 @@ public class ReportNotifier {
                     "<p>Hi " + esc(reporter.getName()) + ",</p><p>Thanks for your report about <b>" + esc(targetName)
                             + "</b>. An admin " + outcome + ".</p>"
                             + (note != null ? "<p><b>Admin's note:</b> " + esc(note) + "</p>" : "")
-                            + button(base() + "/", "Open Jcat Connect"),
+                            + button(base() + "/", "Open JCAT Connect"),
                     "Thanks for your report about " + targetName + ". An admin " + outcome + "."
                             + (note != null ? "\nAdmin's note: " + note : ""));
         });
@@ -96,7 +96,7 @@ public class ReportNotifier {
     private void email(String to, String subject, String bodyHtml, String text) {
         if (!emailService.isEnabled()) return;
         String html = "<div style=\"font-family:Arial,sans-serif;max-width:520px;margin:auto;color:#0f172a\">"
-                + "<h2 style=\"margin:0 0 12px\">Jcat Connect</h2>" + bodyHtml + "</div>";
+                + "<h2 style=\"margin:0 0 12px\">JCAT Connect</h2>" + bodyHtml + "</div>";
         CompletableFuture.runAsync(() -> emailService.send(to, subject, html, text));
     }
 

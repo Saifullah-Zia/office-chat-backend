@@ -17,7 +17,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class TwoFactorService {
 
-    private static final String ISSUER = "Jcat Connect";
+    private static final String ISSUER = "JCAT Connect";
     private static final int RECOVERY_CODE_COUNT = 10;
     private static final SecureRandom RANDOM = new SecureRandom();
 
