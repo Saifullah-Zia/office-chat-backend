@@ -73,7 +73,6 @@ public class R2Storage {
     public boolean enabled() {
         return client != null;
     }
-
     public void put(String key, InputStream in, long size, String contentType) {
         client.putObject(b -> b.bucket(bucket).key(key)
                         .contentType(blank(contentType) ? "application/octet-stream" : contentType),
@@ -102,6 +101,25 @@ public class R2Storage {
 
     public boolean has(String key) {
         return get(key) != null;
+    }
+
+    /** A file into another bucket the same key may use (database backups). */
+    public void putFile(String otherBucket, String key, Path file, String contentType) throws IOException {
+        try (InputStream in = Files.newInputStream(file)) {
+            client.putObject(b -> b.bucket(otherBucket).key(key).contentType(contentType), RequestBody.fromInputStream(in, Files.size(file)));
+        }
+    }
+
+    public boolean exists(String otherBucket, String key) {
+        try {
+            client.headObject(b -> b.bucket(otherBucket).key(key));
+            return true;
+        } catch (NoSuchKeyException e) {
+            return false;
+        } catch (S3Exception e) {
+            if (e.statusCode() == 404) return false;
+            throw e;
+        }
     }
 
     public void delete(String key) {
