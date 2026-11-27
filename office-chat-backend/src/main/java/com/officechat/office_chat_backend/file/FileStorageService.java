@@ -18,7 +18,10 @@ import java.util.UUID;
 
 @lombok.extern.slf4j.Slf4j
 @Service
+@lombok.RequiredArgsConstructor
 public class FileStorageService {
+
+    private final R2Storage r2;
 
     @Value("${app.upload-dir}")
     private String uploadDir;
@@ -72,8 +75,17 @@ public class FileStorageService {
         String safeExt = extension.matches("[a-z0-9]{1,10}") ? extension : "";
 
         String storedFileName = UUID.randomUUID() + (safeExt.isEmpty() ? "" : "." + safeExt);
-        Path target = resolveUploadPath().resolve(storedFileName);
+        if (r2.enabled()) {
+            try (java.io.InputStream in = file.getInputStream()) {
+                r2.put(storedFileName, in, file.getSize(), file.getContentType());
+            } catch (Exception e) {
+                log.error("Upload to R2 failed: {}", e.getMessage());
+                throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to store file. Please try again.");
+            }
+            return new StoredFile(originalName, storedFileName, file.getSize(), file.getContentType());
+        }
 
+        Path target = resolveUploadPath().resolve(storedFileName);
         try {
             Files.copy(file.getInputStream(), target);
         } catch (IOException e) {
@@ -84,8 +96,19 @@ public class FileStorageService {
     }
 
     public Resource load(String storedFileName) {
+        if (r2.enabled() && isSafeName(storedFileName)) {
+            try {
+                Resource remote = r2.get(storedFileName);
+                if (remote != null) return remote;
+            } catch (Exception e) {
+                log.warn("R2 read failed for {}: {}", storedFileName, e.getMessage());
+            }
+            // Not copied up yet: fall back to the upload folder below.
+        }
         try {
-            Path filePath = resolveUploadPath().resolve(storedFileName).normalize();
+            Path base = resolveUploadPath();
+            Path filePath = base.resolve(storedFileName).normalize();
+            if (!filePath.startsWith(base)) throw new ApiException(HttpStatus.NOT_FOUND, "File not found on disk");
             Resource resource = new UrlResource(filePath.toUri());
 
             if (!resource.exists() || !resource.isReadable()) {
@@ -99,6 +122,13 @@ public class FileStorageService {
 
     /** Removes a stored file from disk; missing files are ignored. */
     public void delete(String storedFileName) {
+        if (r2.enabled() && isSafeName(storedFileName)) {
+            try {
+                r2.delete(storedFileName);
+            } catch (Exception e) {
+                log.warn("Could not delete {} from R2: {}", storedFileName, e.getMessage());
+            }
+        }
         try {
             Path base = resolveUploadPath();
             Path target = base.resolve(storedFileName).normalize();
@@ -106,6 +136,46 @@ public class FileStorageService {
         } catch (IOException e) {
             log.warn("Could not delete stored file {}: {}", storedFileName, e.getMessage());
         }
+    }
+
+    /** Stored names are ours (uuid.ext); anything else never reaches the bucket. */
+    private static boolean isSafeName(String name) {
+        return name != null && name.matches("[A-Za-z0-9._-]{1,200}") && !name.startsWith(".");
+    }
+
+    /**
+     * Once R2 is switched on, copies files still in the upload folder up to the bucket, in the background so the
+     * app starts at once. Files stay on disk too (they are served from there until copied), so nothing is lost
+     * if this is interrupted: the next start carries on.
+     */
+    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+    public void copyLocalFilesToR2() {
+        if (!r2.enabled()) return;
+        Path base = Paths.get(uploadDir).toAbsolutePath().normalize();
+        if (!Files.isDirectory(base)) return;
+        Thread t = new Thread(() -> {
+            int copied = 0, failed = 0;
+            try (var files = Files.list(base)) {
+                for (Path p : (Iterable<Path>) files::iterator) {
+                    String name = p.getFileName().toString();
+                    if (!Files.isRegularFile(p) || !isSafeName(name)) continue;
+                    try {
+                        if (!r2.has(name)) {
+                            r2.put(name, p);
+                            copied++;
+                        }
+                    } catch (Exception e) {
+                        failed++;
+                        log.warn("Could not copy {} to R2: {}", name, e.getMessage());
+                    }
+                }
+            } catch (IOException e) {
+                log.warn("Could not list the upload folder: {}", e.getMessage());
+            }
+            log.info("R2 copy finished: {} file(s) copied, {} failed", copied, failed);
+        }, "r2-copy");
+        t.setDaemon(true);
+        t.start();
     }
 
     private String getExtension(String fileName) {

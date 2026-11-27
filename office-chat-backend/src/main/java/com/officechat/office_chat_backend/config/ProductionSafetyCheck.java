@@ -36,7 +36,7 @@ public class ProductionSafetyCheck {
         if (allowedOrigins.contains("localhost")) {
             log.warn("CORS_ALLOWED_ORIGINS is still localhost; set it to the frontend's https address or the browser will block the app.");
         }
-        if (!uploadDir.startsWith("/")) {
+        if (!uploadDir.startsWith("/") && System.getenv("R2_FILES_BUCKET") == null) {
             log.warn("UPLOAD_DIR is '{}' (inside the container): uploaded files will be lost on redeploy. Point it at the volume, e.g. /data/uploads.", uploadDir);
         }
     }
